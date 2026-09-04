@@ -254,6 +254,37 @@ class SynthesisTests(unittest.TestCase):
         invalid["why_it_matters"] = "The client has external business cash resources."
         self._assert_semantically_rejected(invalid)
 
+    def test_evidence_bounded_external_funding_uncertainty_passes(self) -> None:
+        valid = _valid_synthesis()
+        valid["uncertainties"] = [
+            "The supplied evidence does not establish whether external funding "
+            "sources are available."
+        ]
+        result = self._run_model_output(valid)
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+
+    def test_external_funding_rm_question_passes(self) -> None:
+        valid = _valid_synthesis()
+        valid["rm_questions"] = [
+            "Are there any external funding sources available for the HKD60m requirement?"
+        ]
+        result = self._run_model_output(valid)
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+
+    def test_asserted_external_business_cash_flow_in_uncertainties_is_rejected(
+        self,
+    ) -> None:
+        invalid = _valid_synthesis()
+        invalid["uncertainties"] = ["The client may have external business cash flow."]
+        self._assert_semantically_rejected(invalid)
+
+    def test_asserted_fresh_borrowing_in_uncertainties_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["uncertainties"] = ["Fresh borrowing could fund the requirement."]
+        self._assert_semantically_rejected(invalid)
+
     def test_non_binding_review_option_is_allowed(self) -> None:
         valid = _valid_synthesis()
         valid["rm_review_options"] = ["Review the collateral position."]

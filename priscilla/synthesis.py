@@ -44,9 +44,15 @@ Specific claim discipline:
   composition from lending-value or collateral contribution.
 - Do not speculate about the HKD 2m unreconciled difference. State only that it remains unexplained
   by the supplied evidence.
-- Do not invent external business cash flow, fresh borrowing, sale restrictions, fees, accrued
-  interest, or settlement mechanics as facts. Unknown external funding sources may appear only as
-  questions for the RM.
+- Do not assert, speculate about, or suggest in headline, why_it_matters, or uncertainties that the
+  client has or may have external business cash flow, fresh borrowing, other external funding, or
+  undisclosed liquidity sources; the supplied evidence does not establish any of this.
+- External funding sources may be raised only as a question in rm_questions, for example:
+  "Are there any external funding sources available for the HKD60m requirement?"
+- In uncertainties, if external funding is relevant, use only evidence-bounded wording such as:
+  "The supplied evidence does not establish whether external funding sources are available."
+  Do not list possible external funding sources (business cash flow, fresh borrowing, sale
+  restrictions, fees, accrued interest, settlement mechanics, or otherwise) there.
 - Do not claim the HKD 60m need is safely funded or that a margin call has occurred.
 
 Return one JSON object only, with exactly these fields:
@@ -130,6 +136,15 @@ EXTERNAL_FUNDING_PATTERN = re.compile(
     r"\b(?:external(?: business)?(?: cash)? (?:resources?|funding|funds)|"
     r"external business cash flow|fresh borrowing|sale restrictions?|settlement mechanics)\b",
     re.IGNORECASE,
+)
+NEGATED_EXTERNAL_FUNDING_PATTERNS = (
+    re.compile(
+        r"\b(?:does|do) not establish (?:whether|if) [^.!?;]{0,160}?"
+        r"(?:external(?: business)?(?: cash)? (?:resources?|funding|funds)|"
+        r"external business cash flow|fresh borrowing|sale restrictions?|settlement mechanics)"
+        r"[^.!?;]{0,160}\bavailable\b",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -284,12 +299,24 @@ def validate_synthesis_semantics(value: Mapping[str, Any]) -> None:
                 raise SynthesisSemanticValidationError(
                     f"Prohibited semantic condition in {field}: speculative HKD 2m cause"
                 )
-            if EXTERNAL_FUNDING_PATTERN.search(text):
+            external_funding_matches = list(EXTERNAL_FUNDING_PATTERN.finditer(text))
+            if external_funding_matches:
                 is_rm_question = field == "rm_questions" and text.strip().endswith("?")
                 if not is_rm_question:
-                    raise SynthesisSemanticValidationError(
-                        f"Prohibited semantic condition in {field}: asserted external funding"
-                    )
+                    negated_external_funding_spans = [
+                        match.span()
+                        for pattern in NEGATED_EXTERNAL_FUNDING_PATTERNS
+                        for match in pattern.finditer(text)
+                    ]
+                    for funding_match in external_funding_matches:
+                        if not any(
+                            start <= funding_match.start() and funding_match.end() <= end
+                            for start, end in negated_external_funding_spans
+                        ):
+                            raise SynthesisSemanticValidationError(
+                                f"Prohibited semantic condition in {field}: "
+                                "asserted external funding"
+                            )
 
 
 def _post_json(
