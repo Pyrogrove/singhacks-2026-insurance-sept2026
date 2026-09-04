@@ -66,9 +66,6 @@ Specific claim discipline:
   Do not list possible external funding sources (business cash flow, fresh borrowing, sale
   restrictions, fees, accrued interest, settlement mechanics, or otherwise) there.
 - Do not claim the HKD 60m need is safely funded or that a margin call has occurred.
-- The source field named headroom means lending value minus drawn balance. Refer to it only as
-  "lending-value headroom". Do not call HKD 25.57m "margin-call headroom", "trigger buffer", or
-  "distance to margin call". The actual distance to the 70% trigger is 0.59 percentage points.
 
 Return one JSON object only, with exactly these fields:
 headline (string), why_it_matters (string), evidence_used (array of strings), uncertainties
@@ -197,7 +194,19 @@ def build_compact_model_input(evidence: Mapping[str, Any]) -> dict[str, Any]:
                 "utilisation_current_percentage": facility[
                     "utilisation_current_percentage"
                 ],
-                "ltv_series": facility["ltv_series"],
+                "ltv_series": [
+                    {
+                        key: snapshot[key]
+                        for key in (
+                            "snapshot_date",
+                            "drawn",
+                            "collateral_market_value",
+                            "lending_value",
+                            "ltv_percentage",
+                        )
+                    }
+                    for snapshot in facility["ltv_series"]
+                ],
             },
             "confirmed_cash_needs": facts["confirmed_cash_needs"],
             "rm_notes_verbatim": facts["rm_notes"],

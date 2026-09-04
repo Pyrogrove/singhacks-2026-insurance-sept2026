@@ -250,6 +250,28 @@ class SynthesisTests(unittest.TestCase):
             "CL-0014", model_input["source_facts"]["client_context"]["client_id"]
         )
         self.assertNotIn("clients", model_input)
+        facility = model_input["source_facts"]["facility"]
+        self.assertEqual(58_000_000.0, facility["current_drawn"])
+        self.assertEqual(69.41, facility["current_ltv_percentage"])
+        self.assertEqual(70.0, facility["margin_call_trigger_percentage"])
+        self.assertEqual(82.86, facility["utilisation_current_percentage"])
+        self.assertAlmostEqual(
+            0.59,
+            model_input["calculated_results"][
+                "facility_ltv_distance_to_trigger_percentage_points"
+            ],
+            places=10,
+        )
+        self.assertTrue(
+            all("headroom" not in snapshot for snapshot in facility["ltv_series"])
+        )
+        serialized_input = json.dumps(model_input)
+        self.assertNotIn('"headroom"', serialized_input)
+        self.assertNotIn("25565930", serialized_input)
+        self.assertIn(
+            "headroom",
+            self.evidence["source_facts"]["credit_facility"]["ltv_series"][0],
+        )
 
     def test_timeout_fails_safely(self) -> None:
         def timing_out(*_: Any) -> dict[str, Any]:
