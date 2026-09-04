@@ -20,7 +20,7 @@ REQUIRED_DISCLAIMER = "The Relationship Manager remains responsible for advice a
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
-SYSTEM_INSTRUCTION = f"""You are a bounded interpretation layer for a relationship manager.
+SYSTEM_INSTRUCTION = """You are a bounded interpretation layer for a relationship manager.
 Use only the supplied CL-0014 evidence. Python has already calculated every authoritative metric.
 
 Your tasks:
@@ -57,9 +57,8 @@ Specific claim discipline:
 
 Return one JSON object only, with exactly these fields:
 headline (string), why_it_matters (string), evidence_used (array of strings), uncertainties
-(array of strings), rm_questions (array of strings), rm_review_options (array of strings), and
-disclaimer (string). The disclaimer must include this exact sentence:
-{REQUIRED_DISCLAIMER}
+(array of strings), rm_questions (array of strings), and rm_review_options (array of strings).
+Do not return a disclaimer; Python appends the fixed RM-authority disclaimer after validation.
 """
 
 Transport = Callable[[str, dict[str, Any], str, float], dict[str, Any]]
@@ -214,7 +213,6 @@ def validate_model_synthesis(value: Any) -> dict[str, Any]:
         "uncertainties",
         "rm_questions",
         "rm_review_options",
-        "disclaimer",
     )
     missing = sorted(set(required_fields) - value.keys())
     if missing:
@@ -227,7 +225,7 @@ def validate_model_synthesis(value: Any) -> dict[str, Any]:
             "Model synthesis contains unexpected field(s): " + ", ".join(unexpected)
         )
 
-    for field in ("headline", "why_it_matters", "disclaimer"):
+    for field in ("headline", "why_it_matters"):
         if not isinstance(value[field], str) or not value[field].strip():
             raise SynthesisValidationError(f"{field} must be a non-empty string")
     for field in (
@@ -245,15 +243,12 @@ def validate_model_synthesis(value: Any) -> dict[str, Any]:
             raise SynthesisValidationError(
                 f"{field} must be a non-empty array of non-empty strings"
             )
-    if REQUIRED_DISCLAIMER not in value["disclaimer"]:
-        raise SynthesisValidationError("Required RM authority disclaimer is missing")
-
     return {field: value[field] for field in required_fields}
 
 
 def validate_synthesis_semantics(value: Mapping[str, Any]) -> None:
     """Fail closed on narrow, demonstrated unsupported claim patterns."""
-    text_fields = ("headline", "why_it_matters", "disclaimer")
+    text_fields = ("headline", "why_it_matters")
     list_fields = (
         "evidence_used",
         "uncertainties",
@@ -478,6 +473,7 @@ def synthesize_evidence(
         synthesis = validate_model_synthesis(decoded)
         structural_validation_passed = True
         validate_synthesis_semantics(synthesis)
+        synthesis = {**synthesis, "disclaimer": REQUIRED_DISCLAIMER}
     except SynthesisSemanticValidationError as exc:
         latency = time.perf_counter() - started
         return _failure_result(

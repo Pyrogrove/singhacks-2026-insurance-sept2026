@@ -7,6 +7,7 @@ import json
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from priscilla.evidence import build_client_evidence
 from priscilla.synthesis import REQUIRED_DISCLAIMER, synthesize_evidence
@@ -27,7 +28,6 @@ def _valid_synthesis() -> dict[str, Any]:
         "uncertainties": ["The HKD 2m drawdown difference remains unexplained."],
         "rm_questions": ["What funding sources does the client expect to use?"],
         "rm_review_options": ["Review collateral and liquidity facts with the client."],
-        "disclaimer": REQUIRED_DISCLAIMER,
     }
 
 
@@ -49,7 +49,10 @@ class SynthesisTests(unittest.TestCase):
         )
         self.assertEqual("available", result["status"])
         self.assertTrue(result["validation_passed"])
-        self.assertEqual(_valid_synthesis(), result["model_synthesis"])
+        self.assertEqual(
+            {**_valid_synthesis(), "disclaimer": REQUIRED_DISCLAIMER},
+            result["model_synthesis"],
+        )
         self.assertEqual(before, self.evidence)
         self.assertEqual(before, result["deterministic_evidence"])
 
@@ -125,16 +128,29 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual("failed", result["status"])
         self.assertIsNone(result["model_synthesis"])
 
-    def test_rm_authority_disclaimer_is_required(self) -> None:
-        invalid = _valid_synthesis()
-        invalid["disclaimer"] = "Review this output carefully."
+    def test_model_cannot_override_deterministic_disclaimer(self) -> None:
+        invalid = {**_valid_synthesis(), "disclaimer": "Model-controlled text."}
         result = synthesize_evidence(
             self.evidence,
             environment=TEST_ENVIRONMENT,
             transport=lambda *_: _response(json.dumps(invalid)),
         )
         self.assertEqual("failed", result["status"])
+        self.assertEqual("STRUCTURAL_VALIDATION_FAILED", result["error"]["code"])
         self.assertIsNone(result["model_synthesis"])
+
+    def test_python_appends_deterministic_disclaimer(self) -> None:
+        result = self._run_model_output(_valid_synthesis())
+        self.assertEqual("available", result["status"])
+        self.assertEqual(REQUIRED_DISCLAIMER, result["model_synthesis"]["disclaimer"])
+
+    def test_deterministic_disclaimer_is_not_semantically_scanned(self) -> None:
+        sentinel = "The cash requirement is safely funded."
+        with patch("priscilla.synthesis.REQUIRED_DISCLAIMER", sentinel):
+            result = self._run_model_output(_valid_synthesis())
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+        self.assertEqual(sentinel, result["model_synthesis"]["disclaimer"])
 
     def test_authoritative_calculated_metrics_are_not_altered(self) -> None:
         metrics_before = copy.deepcopy(self.evidence["calculated_results"])
@@ -379,7 +395,7 @@ class SynthesisTests(unittest.TestCase):
         for statement in statements:
             with self.subTest(statement=statement):
                 valid = _valid_synthesis()
-                valid["disclaimer"] = f"{statement} {REQUIRED_DISCLAIMER}"
+                valid["uncertainties"] = [statement]
                 result = self._run_model_output(valid)
                 self.assertEqual("available", result["status"])
                 self.assertTrue(result["semantic_validation_passed"])
