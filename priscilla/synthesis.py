@@ -72,10 +72,6 @@ PROHIBITED_GENERAL_PATTERNS = (
     (re.compile(r"\bforced liquidation\b", re.IGNORECASE), "forced liquidation"),
     (re.compile(r"\billiquid collateral\b", re.IGNORECASE), "illiquid collateral"),
     (
-        re.compile(r"\b(?:safe|safely|fully) funded\b", re.IGNORECASE),
-        "funding asserted as safe",
-    ),
-    (
         re.compile(
             r"\bmargin call (?:has |had )?(?:already )?"
             r"(?:occurred|happened|triggered|been triggered)\b",
@@ -86,6 +82,33 @@ PROHIBITED_GENERAL_PATTERNS = (
     (
         re.compile(r"\b(?:must|should|required to)\s+(?:act|take)\b", re.IGNORECASE),
         "directive language",
+    ),
+)
+AFFIRMATIVE_FUNDING_PATTERN = re.compile(
+    r"\b(?:(?:safe|safely|fully) funded|(?:safely|fully) fund|"
+    r"sufficient liquidity to (?:(?:safely|fully) )?fund)\b",
+    re.IGNORECASE,
+)
+NEGATED_FUNDING_PATTERNS = (
+    re.compile(
+        r"\bnot (?:represented|described|treated|regarded) as "
+        r"(?:safe|safely|fully) funded\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:does|do) not (?:establish|show|demonstrate|confirm|indicate) that "
+        r"[^.!?;]{0,120}\b(?:(?:safe|safely|fully) funded|(?:safely|fully) fund|"
+        r"sufficient liquidity to (?:(?:safely|fully) )?fund)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:is|are) not (?:safe|safely|fully) funded\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:cannot|can't) (?:be )?(?:(?:safe|safely|fully) funded|"
+        r"(?:safely|fully) fund)\b",
+        re.IGNORECASE,
     ),
 )
 DIRECTIVE_PATTERN = re.compile(
@@ -238,6 +261,20 @@ def validate_synthesis_semantics(value: Mapping[str, Any]) -> None:
                 if pattern.search(text):
                     raise SynthesisSemanticValidationError(
                         f"Prohibited semantic condition in {field}: {condition}"
+                    )
+            negated_funding_spans = [
+                match.span()
+                for pattern in NEGATED_FUNDING_PATTERNS
+                for match in pattern.finditer(text)
+            ]
+            for funding_match in AFFIRMATIVE_FUNDING_PATTERN.finditer(text):
+                if not any(
+                    start <= funding_match.start() and funding_match.end() <= end
+                    for start, end in negated_funding_spans
+                ):
+                    raise SynthesisSemanticValidationError(
+                        f"Prohibited semantic condition in {field}: "
+                        "funding asserted as safe"
                     )
             if DIRECTIVE_PATTERN.search(text):
                 raise SynthesisSemanticValidationError(

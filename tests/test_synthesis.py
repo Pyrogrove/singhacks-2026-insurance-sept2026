@@ -339,6 +339,34 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIsNone(result["model_synthesis"])
                 self.assertEqual(evidence_before, result["deterministic_evidence"])
 
+    def test_explicitly_negated_funding_language_passes(self) -> None:
+        statements = (
+            "The HKD60m need is not represented as safely funded.",
+            "Funding suitability remains unresolved.",
+            "The evidence does not establish that the requirement is safely funded.",
+        )
+        for statement in statements:
+            with self.subTest(statement=statement):
+                valid = _valid_synthesis()
+                valid["disclaimer"] = f"{statement} {REQUIRED_DISCLAIMER}"
+                result = self._run_model_output(valid)
+                self.assertEqual("available", result["status"])
+                self.assertTrue(result["semantic_validation_passed"])
+
+    def test_affirmative_funding_sufficiency_language_fails(self) -> None:
+        field_and_statement = (
+            ("headline", "The HKD60m requirement is safely funded."),
+            (
+                "why_it_matters",
+                "The client has sufficient liquidity to fully fund the HKD60m requirement.",
+            ),
+        )
+        for field, statement in field_and_statement:
+            with self.subTest(field=field, statement=statement):
+                invalid = _valid_synthesis()
+                invalid[field] = statement
+                self._assert_semantically_rejected(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()
