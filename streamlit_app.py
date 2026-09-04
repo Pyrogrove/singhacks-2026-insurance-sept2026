@@ -17,6 +17,22 @@ DATA_DIR = REPO_ROOT / "data"
 AI_UNAVAILABLE_MESSAGE = (
     "AI briefing unavailable. Deterministic evidence remains available."
 )
+AI_FAILURE_MESSAGES = {
+    "MISSING_API_KEY": "AI briefing service is not configured in this environment.",
+    "MISSING_MODEL": "AI briefing service is not configured in this environment.",
+    "MISSING_BASE_URL": "AI briefing service is not configured in this environment.",
+    "INVALID_TIMEOUT": "AI briefing service is not configured in this environment.",
+    "SYNTHESIS_FAILED": "AI briefing service is temporarily unavailable.",
+    "STRUCTURAL_VALIDATION_FAILED": (
+        "AI briefing response did not pass structural validation."
+    ),
+    "SEMANTIC_VALIDATION_FAILED": (
+        "AI briefing response did not pass evidence-safety validation."
+    ),
+}
+UNKNOWN_AI_FAILURE_MESSAGE = (
+    "AI briefing is unavailable. Deterministic evidence remains available."
+)
 
 
 @st.cache_data(show_spinner=False)
@@ -64,8 +80,7 @@ def _render_ai_result(result: Mapping[str, Any]) -> None:
         error = result.get("error")
         if isinstance(error, Mapping):
             code = str(error.get("code", "SYNTHESIS_UNAVAILABLE"))
-            message = str(error.get("message", "No model output is available."))
-            st.caption(f"{code}: {message}")
+            st.caption(AI_FAILURE_MESSAGES.get(code, UNKNOWN_AI_FAILURE_MESSAGE))
         return
 
     synthesis = result["model_synthesis"]
