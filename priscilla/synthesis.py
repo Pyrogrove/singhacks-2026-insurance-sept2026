@@ -103,8 +103,8 @@ PROHIBITED_GENERAL_PATTERNS = (
         "distance to margin call",
     ),
     (
-        re.compile(r"(?<!lending-value )\bheadroom\b", re.IGNORECASE),
-        "headroom without lending-value qualifier",
+        re.compile(r"\bheadroom\b", re.IGNORECASE),
+        "headroom",
     ),
     (
         re.compile(

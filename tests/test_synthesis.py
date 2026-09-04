@@ -194,12 +194,10 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual("failed", result["status"])
         self.assertIn("rm_review_options exceeds 3", result["error"]["message"])
 
-    def test_lending_value_headroom_terminology_passes(self) -> None:
-        valid = _valid_synthesis()
-        valid["evidence_used"] = ["Lending-value headroom is HKD 25.57m."]
-        result = self._run_model_output(valid)
-        self.assertEqual("available", result["status"])
-        self.assertTrue(result["semantic_validation_passed"])
+    def test_lending_value_headroom_terminology_fails(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["evidence_used"] = ["Lending-value headroom is HKD 25.57m."]
+        self._assert_semantically_rejected(invalid)
 
     def test_margin_call_headroom_terminology_fails(self) -> None:
         invalid = _valid_synthesis()
