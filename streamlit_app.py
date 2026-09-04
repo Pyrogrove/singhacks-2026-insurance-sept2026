@@ -33,7 +33,7 @@ def _date_label(value: str) -> str:
     return pd.Timestamp(value).strftime("%d %b %Y")
 
 
-def _render_metric_card(
+def _render_signal_card(
     column: Any,
     *,
     provenance: str,
@@ -42,8 +42,13 @@ def _render_metric_card(
     detail: str,
 ) -> None:
     with column:
-        st.caption(provenance)
-        st.metric(label, value, border=True)
+        badge_color = {
+            "CALCULATED RESULT": "blue",
+            "VERIFIED SOURCE FACT": "green",
+            "UNRESOLVED DATA TENSION": "orange",
+        }[provenance]
+        st.markdown(f":{badge_color}-badge[{provenance}]")
+        st.metric(label, value)
         st.caption(detail)
 
 
@@ -64,7 +69,8 @@ def _render_ai_result(result: Mapping[str, Any]) -> None:
         return
 
     synthesis = result["model_synthesis"]
-    st.success("MODEL SYNTHESIS — DeepSeek V4 Flash")
+    st.markdown(":violet-badge[AI SYNTHESIS]")
+    st.subheader("MODEL SYNTHESIS — DeepSeek V4 Flash")
     st.markdown(f"### {synthesis['headline']}")
     st.write(synthesis["why_it_matters"])
 
@@ -83,8 +89,22 @@ def _render_ai_result(result: Mapping[str, Any]) -> None:
 
 st.set_page_config(
     page_title="Priscilla — RM Intelligence Investigator",
+    page_icon=":material/query_stats:",
     layout="wide",
 )
+
+header_brand, header_context = st.columns([1, 3], vertical_alignment="center")
+with header_brand:
+    st.markdown("## Priscilla")
+    st.caption("RM Intelligence Investigator")
+with header_context:
+    st.markdown(
+        ":blue-badge[Client CL-0014] "
+        ":violet-badge[RM Priscilla Ong] "
+        ":gray-badge[As of 26 Aug 2026] "
+        ":gray-badge[Synthetic challenge dataset]",
+        text_alignment="right",
+    )
 
 evidence = load_evidence(str(DATA_DIR))
 facts = evidence["source_facts"]
@@ -96,172 +116,218 @@ current = calculated["current_snapshot"]
 tension = evidence["data_tensions"][0]
 currency = client["base_currency"]
 
-st.title("Priscilla")
-st.subheader("RM Intelligence Investigator")
-st.caption("Evidence-first client investigation for Relationship Managers")
-st.markdown(
-    ":blue-badge[Client CL-0014] "
-    ":violet-badge[RM Priscilla Ong] "
-    ":gray-badge[As of 26 Aug 2026] "
-    ":gray-badge[Data: Synthetic challenge dataset]"
+st.info(
+    "**Funding pressure meets concentrated property exposure**",
+    icon=":material/priority_high:",
 )
 
-st.info("### Funding pressure meets concentrated property exposure")
-
-row_one = st.columns(3)
-_render_metric_card(
-    row_one[0],
-    provenance="CALCULATED RESULT",
-    label="Portfolio",
-    value=_money_millions(currency, current["total_portfolio_market_value"]),
-    detail="Current portfolio market value",
-)
-_render_metric_card(
-    row_one[1],
+critical_signals = st.columns(4, gap="small", border=True)
+_render_signal_card(
+    critical_signals[0],
     provenance="CALCULATED RESULT",
     label="Property-linked exposure",
     value=f"{current['property_linked_percentage']:.2f}%",
     detail=_money_millions(currency, current["property_linked_market_value"]),
 )
-_render_metric_card(
-    row_one[2],
-    provenance="SOURCE FACT + CALCULATED RESULT",
+_render_signal_card(
+    critical_signals[1],
+    provenance="CALCULATED RESULT",
     label="Facility LTV",
     value=f"{facility['current_ltv_percentage']:.2f}%",
     detail=(
         f"{facility['margin_call_trigger_percentage']:.2f}% trigger · "
-        f"{calculated['facility_ltv_distance_to_trigger_percentage_points']:.2f} pp distance · "
-        f"{_money_millions(currency, facility['current_drawn'])} drawn · "
-        f"{facility['utilisation_current_percentage']:.2f}% utilisation"
+        f"{calculated['facility_ltv_distance_to_trigger_percentage_points']:.2f} "
+        "percentage-point distance"
     ),
 )
-
-row_two = st.columns(3)
-_render_metric_card(
-    row_two[0],
+_render_signal_card(
+    critical_signals[2],
     provenance="VERIFIED SOURCE FACT",
     label="Confirmed cash need",
     value=_money_millions(currency, cash_need["amount"]),
     detail=f"{cash_need['description']} · Nov 2026–Jun 2027",
 )
-_render_metric_card(
-    row_two[1],
-    provenance="CALCULATED RESULT",
-    label="Daily liquidity (gross)",
-    value=_money_millions(currency, current["daily_liquidity_gross_market_value"]),
-    detail="Funding suitability remains unresolved",
-)
-_render_metric_card(
-    row_two[2],
+_render_signal_card(
+    critical_signals[3],
     provenance="UNRESOLVED DATA TENSION",
     label="Unexplained difference",
     value=_money_millions(currency, tension["unreconciled_difference"]),
-    detail="Facility balance vs logged drawdowns",
+    detail="Facility increase vs logged drawdowns",
 )
 
-st.subheader("Exposure and facility trajectory")
-chart_left, chart_right = st.columns(2)
 property_series = pd.DataFrame(calculated["portfolio_snapshot_series"])
 property_series["Snapshot"] = pd.to_datetime(property_series["snapshot_date"])
 property_series["Property-linked exposure (%)"] = property_series[
     "property_linked_percentage"
 ]
-with chart_left:
-    st.markdown("**Property-linked exposure**")
-    st.line_chart(
-        property_series,
-        x="Snapshot",
-        y="Property-linked exposure (%)",
-        height=260,
-    )
-    st.caption("Five official portfolio snapshots · CALCULATED RESULT")
-
 ltv_series = pd.DataFrame(facility["ltv_series"])
 ltv_series["Snapshot"] = pd.to_datetime(ltv_series["snapshot_date"])
 ltv_series["Facility LTV (%)"] = ltv_series["ltv_percentage"]
 ltv_series["Margin-call trigger (70%)"] = facility[
     "margin_call_trigger_percentage"
 ]
-with chart_right:
-    st.markdown("**Facility LTV and trigger**")
-    st.line_chart(
-        ltv_series,
-        x="Snapshot",
-        y=["Facility LTV (%)", "Margin-call trigger (70%)"],
-        height=260,
-    )
-    st.caption(
-        f"Current distance to the 70% trigger: "
-        f"{calculated['facility_ltv_distance_to_trigger_percentage_points']:.2f} "
-        "percentage points"
-    )
 
-with st.expander("Property exposure look-through — current snapshot"):
-    components = pd.DataFrame(current["property_linked_components"])
-    component_view = components[
-        ["instrument_name", "asset_class", "market_value_base"]
-    ].rename(
-        columns={
-            "instrument_name": "Instrument",
-            "asset_class": "Asset class",
-            "market_value_base": f"Market value ({currency})",
-        }
-    )
-    st.dataframe(
-        component_view,
-        hide_index=True,
-        column_config={
-            f"Market value ({currency})": st.column_config.NumberColumn(
-                format="accounting"
+overview_tab, evidence_tab, notes_tab, ai_tab = st.tabs(
+    ["Overview", "Evidence", "RM notes", "AI briefing"]
+)
+
+with overview_tab:
+    why_now, investigation = st.columns([3, 2], gap="medium")
+    with why_now:
+        st.subheader("Why now")
+        property_chart, ltv_chart = st.columns(2)
+        with property_chart:
+            st.markdown("**Property-linked exposure**")
+            st.line_chart(
+                property_series,
+                x="Snapshot",
+                y="Property-linked exposure (%)",
+                height=170,
             )
-        },
-    )
-    st.info("Four different instruments, one dominant economic theme")
+            st.caption("48.54% → 49.03% · five verified snapshots")
+        with ltv_chart:
+            st.markdown("**Facility LTV versus trigger**")
+            st.line_chart(
+                ltv_series,
+                x="Snapshot",
+                y=["Facility LTV (%)", "Margin-call trigger (70%)"],
+                height=170,
+            )
+            st.caption("53.93% → 69.41% · margin-call trigger = 70%")
 
-context_left, context_right = st.columns(2)
-with context_left:
-    st.subheader("RM context")
-    for note in facts["rm_notes"]:
+    with investigation:
         with st.container(border=True):
-            st.caption("VERIFIED SOURCE FACT — RM NOTE")
-            st.caption(f"{_date_label(note['date'])} · {note['channel']} · {note['note_id']}")
+            st.subheader("Investigation trail")
+            st.markdown(
+                f"**1 · Concentration** — Property-linked exposure is "
+                f"**{current['property_linked_percentage']:.2f}%**.\n\n"
+                f"**2 · Facility pressure** — LTV is "
+                f"**{facility['current_ltv_percentage']:.2f}%** versus the "
+                f"**{facility['margin_call_trigger_percentage']:.2f}%** trigger.\n\n"
+                f"**3 · Future cash need** — "
+                f"**{_money_millions(currency, cash_need['amount'])}** is confirmed.\n\n"
+                f"**4 · Contradiction** — Facility balance rose "
+                f"**{_money_millions(currency, tension['facility_balance_increase'])}**, "
+                f"but logged drawdowns total "
+                f"**{_money_millions(currency, tension['logged_facility_drawdown_transactions'])}**. "
+                f"**{_money_millions(currency, tension['unreconciled_difference'])} "
+                "remains unexplained.**"
+            )
+            st.caption(
+                "Optional bounded AI synthesis. Deterministic evidence above remains authoritative."
+            )
+            generate_clicked = st.button(
+                "Generate AI RM Briefing",
+                type="primary",
+                key="generate_ai_briefing",
+                icon=":material/auto_awesome:",
+                width="stretch",
+            )
+            if generate_clicked:
+                with st.spinner("Generating bounded DeepSeek synthesis…"):
+                    st.session_state["cl0014_synthesis_result"] = synthesize_evidence(
+                        evidence
+                    )
+
+            overview_result = st.session_state.get("cl0014_synthesis_result")
+            if overview_result:
+                if overview_result.get("status") == "available":
+                    st.success("AI synthesis is ready in the AI briefing tab.")
+                else:
+                    st.warning(AI_UNAVAILABLE_MESSAGE)
+
+with evidence_tab:
+    st.subheader("Deterministic evidence")
+    st.caption("Authoritative portfolio calculations and source records")
+    secondary_metrics = st.columns(4, border=True)
+    secondary_metrics[0].metric(
+        "Portfolio total",
+        _money_millions(currency, current["total_portfolio_market_value"]),
+    )
+    secondary_metrics[0].caption("CALCULATED RESULT")
+    secondary_metrics[1].metric(
+        "Daily liquidity — gross",
+        _money_millions(currency, current["daily_liquidity_gross_market_value"]),
+    )
+    secondary_metrics[1].caption(
+        "CALCULATED RESULT · Funding suitability unresolved"
+    )
+    secondary_metrics[2].metric(
+        "Facility drawn", _money_millions(currency, facility["current_drawn"])
+    )
+    secondary_metrics[2].caption("VERIFIED SOURCE FACT")
+    secondary_metrics[3].metric(
+        "Facility utilisation", f"{facility['utilisation_current_percentage']:.2f}%"
+    )
+    secondary_metrics[3].caption("VERIFIED SOURCE FACT")
+
+    look_through, reconciliation = st.columns([3, 2], gap="medium")
+    with look_through:
+        st.markdown("#### Property exposure look-through")
+        st.info("Four different instruments, one dominant economic theme")
+        components = pd.DataFrame(current["property_linked_components"])
+        component_view = components[
+            ["instrument_name", "asset_class", "market_value_base"]
+        ].rename(
+            columns={
+                "instrument_name": "Instrument",
+                "asset_class": "Asset class",
+                "market_value_base": f"Market value ({currency})",
+            }
+        )
+        st.dataframe(
+            component_view,
+            hide_index=True,
+            column_config={
+                f"Market value ({currency})": st.column_config.NumberColumn(
+                    format="accounting"
+                )
+            },
+        )
+
+    with reconciliation:
+        st.markdown("#### Facility reconciliation")
+        st.markdown(":orange-badge[UNRESOLVED DATA TENSION]")
+        tension_columns = st.columns(3)
+        tension_values = (
+            ("Facility increase", tension["facility_balance_increase"]),
+            ("Logged drawdowns", tension["logged_facility_drawdown_transactions"]),
+            ("Unexplained", tension["unreconciled_difference"]),
+        )
+        for column, (label, value) in zip(
+            tension_columns, tension_values, strict=True
+        ):
+            with column:
+                st.metric(label, _money_millions(currency, value))
+        st.warning(
+            "The supplied evidence does not explain the HKD 2.00m difference."
+        )
+        st.caption("27 Feb–31 Mar 2026 · No cause is asserted")
+
+with notes_tab:
+    st.subheader("RM source context")
+    st.caption("Verbatim records from the supplied RM notes")
+    note_columns = st.columns(len(facts["rm_notes"]), border=True)
+    for column, note in zip(note_columns, facts["rm_notes"], strict=True):
+        with column:
+            st.markdown(":green-badge[VERIFIED SOURCE FACT — RM NOTE]")
+            st.caption(
+                f"{_date_label(note['date'])} · {note['channel']} · {note['note_id']}"
+            )
             st.markdown(f"> {note['source_note_text']}")
 
-with context_right:
-    st.subheader("Unresolved reconciliation")
-    st.warning("**UNRESOLVED DATA TENSION**")
-    tension_columns = st.columns(3)
-    tension_values = (
-        ("Facility increase", tension["facility_balance_increase"]),
-        ("Logged drawdowns", tension["logged_facility_drawdown_transactions"]),
-        ("Unexplained", tension["unreconciled_difference"]),
-    )
-    for column, (label, value) in zip(tension_columns, tension_values, strict=True):
-        with column:
-            st.metric(label, _money_millions(currency, value))
-    st.caption(
-        "27 Feb–31 Mar 2026. The supplied evidence does not explain the "
-        f"{_money_millions(currency, tension['unreconciled_difference'])} difference."
-    )
+with ai_tab:
+    st.subheader("AI briefing")
+    if "cl0014_synthesis_result" in st.session_state:
+        _render_ai_result(st.session_state["cl0014_synthesis_result"])
+    else:
+        st.markdown(":violet-badge[AI SYNTHESIS · OPTIONAL]")
+        st.info(
+            "Use **Generate AI RM Briefing** in Overview to request the bounded "
+            "interpretation. No model call has been made."
+        )
+        st.caption("Deterministic evidence remains authoritative and available.")
 
-st.divider()
-st.subheader("Optional AI RM briefing")
-st.write(
-    "Optional bounded AI synthesis. Deterministic evidence above remains authoritative."
-)
-generate_clicked = st.button(
-    "Generate AI RM Briefing",
-    type="primary",
-    key="generate_ai_briefing",
-)
-if generate_clicked:
-    with st.spinner("Generating bounded DeepSeek synthesis…"):
-        st.session_state["cl0014_synthesis_result"] = synthesize_evidence(evidence)
-
-if "cl0014_synthesis_result" in st.session_state:
-    _render_ai_result(st.session_state["cl0014_synthesis_result"])
-
-st.divider()
 st.caption("The Relationship Manager remains responsible for advice and action.")
 st.caption(
     "Priscilla supports evidence-led investigation; it does not provide autonomous "
