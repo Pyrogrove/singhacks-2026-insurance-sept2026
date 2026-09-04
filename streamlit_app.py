@@ -70,7 +70,7 @@ def _render_ai_result(result: Mapping[str, Any]) -> None:
 
     synthesis = result["model_synthesis"]
     st.markdown(":violet-badge[AI SYNTHESIS]")
-    st.subheader("MODEL SYNTHESIS — DeepSeek V4 Flash")
+    st.subheader("EVIDENCE-GROUNDED RM BRIEFING")
     st.markdown(f"### {synthesis['headline']}")
     st.write(synthesis["why_it_matters"])
 
@@ -224,7 +224,7 @@ with overview_tab:
                 width="stretch",
             )
             if generate_clicked:
-                with st.spinner("Generating bounded DeepSeek synthesis…"):
+                with st.spinner("Generating RM intelligence briefing…"):
                     st.session_state["cl0014_synthesis_result"] = synthesize_evidence(
                         evidence
                     )

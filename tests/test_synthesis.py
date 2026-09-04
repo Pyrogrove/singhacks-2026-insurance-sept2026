@@ -206,6 +206,21 @@ class SynthesisTests(unittest.TestCase):
         invalid["evidence_used"] = ["Margin-call headroom is HKD 25.57m."]
         self._assert_semantically_rejected(invalid)
 
+    def test_unqualified_headroom_in_headline_remains_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["headline"] = "LTV headroom is narrow"
+        self._assert_semantically_rejected(invalid)
+
+    def test_approved_distance_to_trigger_wording_passes(self) -> None:
+        valid = _valid_synthesis()
+        valid["evidence_used"] = [
+            "Facility is at 69.41% LTV versus 70.00% trigger, a 0.59 "
+            "percentage-point distance to trigger."
+        ]
+        result = self._run_model_output(valid)
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+
     def test_trigger_buffer_terminology_fails(self) -> None:
         invalid = _valid_synthesis()
         invalid["evidence_used"] = ["The trigger buffer is HKD 25.57m."]
@@ -273,7 +288,7 @@ class SynthesisTests(unittest.TestCase):
             self.evidence["source_facts"]["credit_facility"]["ltv_series"][0],
         )
 
-    def test_model_facing_prompt_excludes_headroom_wording(self) -> None:
+    def test_model_facing_prompt_bans_headroom_and_requires_approved_terms(self) -> None:
         captured_payload: dict[str, Any] = {}
 
         def capture_transport(
@@ -291,12 +306,20 @@ class SynthesisTests(unittest.TestCase):
             transport=capture_transport,
         )
         self.assertEqual("available", result["status"])
-        model_facing_text = "\n".join(
-            message["content"] for message in captured_payload["messages"]
+        system_instruction = captured_payload["messages"][0]["content"]
+        self.assertIn(
+            'Do not use the word "headroom" anywhere in the output',
+            system_instruction,
         )
-        self.assertNotIn("headroom", model_facing_text.casefold())
-        for required_signal in ("current_drawn", "current_ltv_percentage", "70.0", "0.59"):
-            self.assertIn(required_signal, model_facing_text)
+        for approved_term in (
+            "69.41% LTV",
+            "70.00% trigger",
+            "0.59 percentage-point distance to trigger",
+        ):
+            self.assertIn(approved_term, system_instruction)
+
+        compact_input = captured_payload["messages"][1]["content"]
+        self.assertNotIn("headroom", compact_input.casefold())
 
     def test_timeout_fails_safely(self) -> None:
         def timing_out(*_: Any) -> dict[str, Any]:

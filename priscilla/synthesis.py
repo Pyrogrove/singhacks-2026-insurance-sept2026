@@ -66,8 +66,11 @@ Specific claim discipline:
   Do not list possible external funding sources (business cash flow, fresh borrowing, sale
   restrictions, fees, accrued interest, settlement mechanics, or otherwise) there.
 - Do not claim the HKD 60m need is safely funded or that a margin call has occurred.
-- When discussing the facility, use only the drawn balance, current LTV, 70% margin-call trigger,
-  0.59 percentage-point distance to trigger, and utilisation supplied in the evidence.
+- Do not use the word "headroom" anywhere in the output, including "LTV headroom" or "trigger
+  headroom", and do not use equivalent wording that implies unused margin-call buffer.
+- Describe trigger proximity only as "69.41% LTV", "70.00% trigger", and
+  "0.59 percentage-point distance to trigger". When discussing the facility, otherwise use only
+  the drawn balance and utilisation supplied in the evidence.
 
 Return one JSON object only, with exactly these fields:
 headline (string), why_it_matters (string), evidence_used (array of strings), uncertainties
