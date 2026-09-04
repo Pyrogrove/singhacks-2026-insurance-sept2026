@@ -152,6 +152,65 @@ class SynthesisTests(unittest.TestCase):
         self.assertTrue(result["semantic_validation_passed"])
         self.assertEqual(sentinel, result["model_synthesis"]["disclaimer"])
 
+    def test_valid_concise_output_passes(self) -> None:
+        result = self._run_model_output(_valid_synthesis())
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["validation_passed"])
+
+    def test_oversized_why_it_matters_fails(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["why_it_matters"] = " ".join(["word"] * 81)
+        result = self._run_model_output(invalid)
+        self.assertEqual("failed", result["status"])
+        self.assertEqual("STRUCTURAL_VALIDATION_FAILED", result["error"]["code"])
+        self.assertIn("80 words", result["error"]["message"])
+        self.assertIsNone(result["model_synthesis"])
+
+    def test_too_many_evidence_items_fail(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["evidence_used"] = [f"Evidence {number}" for number in range(5)]
+        result = self._run_model_output(invalid)
+        self.assertEqual("failed", result["status"])
+        self.assertIn("evidence_used exceeds 4", result["error"]["message"])
+
+    def test_too_many_uncertainties_fail(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["uncertainties"] = [f"Uncertainty {number}" for number in range(4)]
+        result = self._run_model_output(invalid)
+        self.assertEqual("failed", result["status"])
+        self.assertIn("uncertainties exceeds 3", result["error"]["message"])
+
+    def test_too_many_questions_fail(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["rm_questions"] = [f"Question {number}?" for number in range(4)]
+        result = self._run_model_output(invalid)
+        self.assertEqual("failed", result["status"])
+        self.assertIn("rm_questions exceeds 3", result["error"]["message"])
+
+    def test_too_many_review_options_fail(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["rm_review_options"] = [f"Review option {number}" for number in range(4)]
+        result = self._run_model_output(invalid)
+        self.assertEqual("failed", result["status"])
+        self.assertIn("rm_review_options exceeds 3", result["error"]["message"])
+
+    def test_lending_value_headroom_terminology_passes(self) -> None:
+        valid = _valid_synthesis()
+        valid["evidence_used"] = ["Lending-value headroom is HKD 25.57m."]
+        result = self._run_model_output(valid)
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+
+    def test_margin_call_headroom_terminology_fails(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["evidence_used"] = ["Margin-call headroom is HKD 25.57m."]
+        self._assert_semantically_rejected(invalid)
+
+    def test_trigger_buffer_terminology_fails(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["evidence_used"] = ["The trigger buffer is HKD 25.57m."]
+        self._assert_semantically_rejected(invalid)
+
     def test_authoritative_calculated_metrics_are_not_altered(self) -> None:
         metrics_before = copy.deepcopy(self.evidence["calculated_results"])
         result = synthesize_evidence(

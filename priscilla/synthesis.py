@@ -19,6 +19,13 @@ from .evidence import build_client_evidence
 REQUIRED_DISCLAIMER = "The Relationship Manager remains responsible for advice and action."
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TIMEOUT_SECONDS = 60.0
+MAX_WHY_IT_MATTERS_WORDS = 80
+MAX_LIST_ITEMS = {
+    "evidence_used": 4,
+    "uncertainties": 3,
+    "rm_questions": 3,
+    "rm_review_options": 3,
+}
 
 SYSTEM_INSTRUCTION = """You are a bounded interpretation layer for a relationship manager.
 Use only the supplied CL-0014 evidence. Python has already calculated every authoritative metric.
@@ -28,6 +35,11 @@ Your tasks:
 - connect already-calculated evidence and explain why the RM should care;
 - surface uncertainty or contradiction;
 - propose questions and review options for the RM.
+
+Be concise and prefer only the most decision-relevant evidence. Do not repeat the same metric
+across fields unless necessary. The headline must be one short sentence. why_it_matters must be at
+most 80 words. Use at most 4 evidence_used items and at most 3 items each for uncertainties,
+rm_questions, and rm_review_options.
 
 You must not recompute or change metrics, invent facts or quotations, invent market or geopolitical
 causes, provide definitive investment advice, claim the HKD 60m need is safely funded, assign a
@@ -54,6 +66,9 @@ Specific claim discipline:
   Do not list possible external funding sources (business cash flow, fresh borrowing, sale
   restrictions, fees, accrued interest, settlement mechanics, or otherwise) there.
 - Do not claim the HKD 60m need is safely funded or that a margin call has occurred.
+- The source field named headroom means lending value minus drawn balance. Refer to it only as
+  "lending-value headroom". Do not call HKD 25.57m "margin-call headroom", "trigger buffer", or
+  "distance to margin call". The actual distance to the 70% trigger is 0.59 percentage points.
 
 Return one JSON object only, with exactly these fields:
 headline (string), why_it_matters (string), evidence_used (array of strings), uncertainties
@@ -76,6 +91,19 @@ PROHIBITED_GENERAL_PATTERNS = (
     (re.compile(r"\bheld[ -]to[ -]maturity\b", re.IGNORECASE), "held-to-maturity"),
     (re.compile(r"\bforced liquidation\b", re.IGNORECASE), "forced liquidation"),
     (re.compile(r"\billiquid collateral\b", re.IGNORECASE), "illiquid collateral"),
+    (
+        re.compile(r"\bmargin[ -]call headroom\b", re.IGNORECASE),
+        "margin-call headroom",
+    ),
+    (re.compile(r"\btrigger buffer\b", re.IGNORECASE), "trigger buffer"),
+    (
+        re.compile(r"\bdistance to (?:the )?margin call\b", re.IGNORECASE),
+        "distance to margin call",
+    ),
+    (
+        re.compile(r"(?<!lending-value )\bheadroom\b", re.IGNORECASE),
+        "headroom without lending-value qualifier",
+    ),
     (
         re.compile(
             r"\bmargin call (?:has |had )?(?:already )?"
@@ -228,6 +256,11 @@ def validate_model_synthesis(value: Any) -> dict[str, Any]:
     for field in ("headline", "why_it_matters"):
         if not isinstance(value[field], str) or not value[field].strip():
             raise SynthesisValidationError(f"{field} must be a non-empty string")
+    why_word_count = len(re.findall(r"\S+", value["why_it_matters"]))
+    if why_word_count > MAX_WHY_IT_MATTERS_WORDS:
+        raise SynthesisValidationError(
+            f"why_it_matters exceeds {MAX_WHY_IT_MATTERS_WORDS} words"
+        )
     for field in (
         "evidence_used",
         "uncertainties",
@@ -243,6 +276,9 @@ def validate_model_synthesis(value: Any) -> dict[str, Any]:
             raise SynthesisValidationError(
                 f"{field} must be a non-empty array of non-empty strings"
             )
+        item_limit = MAX_LIST_ITEMS[field]
+        if len(items) > item_limit:
+            raise SynthesisValidationError(f"{field} exceeds {item_limit} items")
     return {field: value[field] for field in required_fields}
 
 
