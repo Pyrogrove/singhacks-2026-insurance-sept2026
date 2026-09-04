@@ -273,6 +273,31 @@ class SynthesisTests(unittest.TestCase):
             self.evidence["source_facts"]["credit_facility"]["ltv_series"][0],
         )
 
+    def test_model_facing_prompt_excludes_headroom_wording(self) -> None:
+        captured_payload: dict[str, Any] = {}
+
+        def capture_transport(
+            _endpoint: str,
+            payload: dict[str, Any],
+            _api_key: str,
+            _timeout: float,
+        ) -> dict[str, Any]:
+            captured_payload.update(payload)
+            return _response(json.dumps(_valid_synthesis()))
+
+        result = synthesize_evidence(
+            self.evidence,
+            environment=TEST_ENVIRONMENT,
+            transport=capture_transport,
+        )
+        self.assertEqual("available", result["status"])
+        model_facing_text = "\n".join(
+            message["content"] for message in captured_payload["messages"]
+        )
+        self.assertNotIn("headroom", model_facing_text.casefold())
+        for required_signal in ("current_drawn", "current_ltv_percentage", "70.0", "0.59"):
+            self.assertIn(required_signal, model_facing_text)
+
     def test_timeout_fails_safely(self) -> None:
         def timing_out(*_: Any) -> dict[str, Any]:
             raise TimeoutError("request timed out")
