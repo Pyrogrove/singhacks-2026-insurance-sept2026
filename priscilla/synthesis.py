@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -32,6 +33,21 @@ causes, provide definitive investment advice, claim the HKD 60m need is safely f
 monetary value to the external property-development business, recommend autonomous action, or
 claim a margin call has already occurred.
 
+Specific claim discipline:
+- Do not use "held-to-maturity" unless that phrase appears in the evidence; it does not appear in
+  this supplied packet.
+- Do not state or imply "forced liquidation"; facility enforcement mechanics are not supplied.
+- Do not say the RM "must", "should", or is "required to" take an action. Use non-binding language
+  such as "merits review", "could be reviewed", "question for the RM", or "review option".
+- Do not call illiquid portfolio positions "illiquid collateral". Distinguish gross portfolio
+  composition from lending-value or collateral contribution.
+- Do not speculate about the HKD 2m unreconciled difference. State only that it remains unexplained
+  by the supplied evidence.
+- Do not invent external business cash flow, fresh borrowing, sale restrictions, fees, accrued
+  interest, or settlement mechanics as facts. Unknown external funding sources may appear only as
+  questions for the RM.
+- Do not claim the HKD 60m need is safely funded or that a margin call has occurred.
+
 Return one JSON object only, with exactly these fields:
 headline (string), why_it_matters (string), evidence_used (array of strings), uncertainties
 (array of strings), rm_questions (array of strings), rm_review_options (array of strings), and
@@ -44,6 +60,53 @@ Transport = Callable[[str, dict[str, Any], str, float], dict[str, Any]]
 
 class SynthesisValidationError(ValueError):
     """Raised when provider content does not satisfy the synthesis contract."""
+
+
+class SynthesisSemanticValidationError(SynthesisValidationError):
+    """Raised when structurally valid content violates narrow claim rules."""
+
+
+PROHIBITED_GENERAL_PATTERNS = (
+    (re.compile(r"\bheld[ -]to[ -]maturity\b", re.IGNORECASE), "held-to-maturity"),
+    (re.compile(r"\bforced liquidation\b", re.IGNORECASE), "forced liquidation"),
+    (re.compile(r"\billiquid collateral\b", re.IGNORECASE), "illiquid collateral"),
+    (
+        re.compile(r"\b(?:safe|safely|fully) funded\b", re.IGNORECASE),
+        "funding asserted as safe",
+    ),
+    (
+        re.compile(
+            r"\bmargin call (?:has |had )?(?:already )?"
+            r"(?:occurred|happened|triggered|been triggered)\b",
+            re.IGNORECASE,
+        ),
+        "margin call asserted as having occurred",
+    ),
+    (
+        re.compile(r"\b(?:must|should|required to)\s+(?:act|take)\b", re.IGNORECASE),
+        "directive language",
+    ),
+)
+DIRECTIVE_PATTERN = re.compile(
+    r"\b(?:the\s+)?(?:rm|relationship manager|priscilla)\s+"
+    r"(?:must|should|needs to|has to|is required to)\s+"
+    r"(?:act|take|review|assess|reconcile|discuss|consider|sell|buy|reduce|increase|"
+    r"liquidate|raise|obtain|arrange|contact|advise)\b",
+    re.IGNORECASE,
+)
+DISCREPANCY_PATTERN = re.compile(
+    r"(?:hkd\s*2\s*m|2[,.]?000[,.]?000|unreconcil|discrepanc|difference)",
+    re.IGNORECASE,
+)
+SPECULATIVE_CAUSE_PATTERN = re.compile(
+    r"\b(?:undisclosed transactions?|fees?|accrued interest)\b",
+    re.IGNORECASE,
+)
+EXTERNAL_FUNDING_PATTERN = re.compile(
+    r"\b(?:external(?: business)?(?: cash)? (?:resources?|funding|funds)|"
+    r"external business cash flow|fresh borrowing|sale restrictions?|settlement mechanics)\b",
+    re.IGNORECASE,
+)
 
 
 def build_compact_model_input(evidence: Mapping[str, Any]) -> dict[str, Any]:
@@ -149,6 +212,48 @@ def validate_model_synthesis(value: Any) -> dict[str, Any]:
     return {field: value[field] for field in required_fields}
 
 
+def validate_synthesis_semantics(value: Mapping[str, Any]) -> None:
+    """Fail closed on narrow, demonstrated unsupported claim patterns."""
+    text_fields = ("headline", "why_it_matters", "disclaimer")
+    list_fields = (
+        "evidence_used",
+        "uncertainties",
+        "rm_questions",
+        "rm_review_options",
+    )
+    field_items = {
+        **{field: [value[field]] for field in text_fields},
+        **{field: value[field] for field in list_fields},
+    }
+    discrepancy_mentioned = any(
+        DISCREPANCY_PATTERN.search(text)
+        for items in field_items.values()
+        for text in items
+    )
+
+    for field, items in field_items.items():
+        for text in items:
+            for pattern, condition in PROHIBITED_GENERAL_PATTERNS:
+                if pattern.search(text):
+                    raise SynthesisSemanticValidationError(
+                        f"Prohibited semantic condition in {field}: {condition}"
+                    )
+            if DIRECTIVE_PATTERN.search(text):
+                raise SynthesisSemanticValidationError(
+                    f"Prohibited semantic condition in {field}: RM directive"
+                )
+            if discrepancy_mentioned and SPECULATIVE_CAUSE_PATTERN.search(text):
+                raise SynthesisSemanticValidationError(
+                    f"Prohibited semantic condition in {field}: speculative HKD 2m cause"
+                )
+            if EXTERNAL_FUNDING_PATTERN.search(text):
+                is_rm_question = field == "rm_questions" and text.strip().endswith("?")
+                if not is_rm_question:
+                    raise SynthesisSemanticValidationError(
+                        f"Prohibited semantic condition in {field}: asserted external funding"
+                    )
+
+
 def _post_json(
     endpoint: str,
     payload: dict[str, Any],
@@ -185,12 +290,16 @@ def _failure_result(
     message: str,
     model: str | None,
     latency_seconds: float | None = None,
+    structural_validation_passed: bool = False,
+    semantic_validation_passed: bool = False,
 ) -> dict[str, Any]:
     return {
         "status": status,
         "model": model,
         "latency_seconds": latency_seconds,
         "validation_passed": False,
+        "structural_validation_passed": structural_validation_passed,
+        "semantic_validation_passed": semantic_validation_passed,
         "deterministic_evidence": evidence,
         "model_synthesis": None,
         "error": {"code": code, "message": message},
@@ -252,6 +361,7 @@ def synthesize_evidence(
 
     request_transport = _post_json if transport is None else transport
     started = time.perf_counter()
+    structural_validation_passed = False
     try:
         provider_response = request_transport(endpoint, payload, api_key, timeout)
         latency = time.perf_counter() - started
@@ -269,6 +379,29 @@ def synthesize_evidence(
         except json.JSONDecodeError as exc:
             raise SynthesisValidationError("DeepSeek returned malformed JSON") from exc
         synthesis = validate_model_synthesis(decoded)
+        structural_validation_passed = True
+        validate_synthesis_semantics(synthesis)
+    except SynthesisSemanticValidationError as exc:
+        latency = time.perf_counter() - started
+        return _failure_result(
+            evidence,
+            "failed",
+            "SEMANTIC_VALIDATION_FAILED",
+            str(exc),
+            model,
+            latency,
+            structural_validation_passed=True,
+        )
+    except SynthesisValidationError as exc:
+        latency = time.perf_counter() - started
+        return _failure_result(
+            evidence,
+            "failed",
+            "STRUCTURAL_VALIDATION_FAILED",
+            str(exc),
+            model,
+            latency,
+        )
     except Exception as exc:
         latency = time.perf_counter() - started
         return _failure_result(
@@ -278,6 +411,7 @@ def synthesize_evidence(
             str(exc),
             model,
             latency,
+            structural_validation_passed=structural_validation_passed,
         )
 
     return {
@@ -285,6 +419,8 @@ def synthesize_evidence(
         "model": model,
         "latency_seconds": latency,
         "validation_passed": True,
+        "structural_validation_passed": True,
+        "semantic_validation_passed": True,
         "deterministic_evidence": evidence,
         "model_synthesis": synthesis,
         "error": None,
@@ -346,13 +482,21 @@ def main() -> None:
 
     print("\nMODEL SYNTHESIS")
     synthesis = result["model_synthesis"]
+    if result["model"]:
+        print(f"Model: {result['model']}")
+    if result["latency_seconds"] is not None:
+        print(f"Latency: {result['latency_seconds']:.3f} seconds")
+    print(
+        "Structural validation: "
+        f"{'passed' if result['structural_validation_passed'] else 'not passed'}"
+    )
+    print(
+        "Semantic validation: "
+        f"{'passed' if result['semantic_validation_passed'] else 'not passed'}"
+    )
     if synthesis is None:
         print(f"UNAVAILABLE ({result['error']['code']}): {result['error']['message']}")
         return
-    print(f"Model: {result['model']}")
-    print(
-        f"Validation: passed; latency: {result['latency_seconds']:.3f} seconds"
-    )
     print(f"Headline: {synthesis['headline']}")
     print(f"Why it matters: {synthesis['why_it_matters']}")
     print("Evidence used:")

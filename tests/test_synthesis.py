@@ -189,6 +189,93 @@ class SynthesisTests(unittest.TestCase):
         self.assertIsNone(result["model_synthesis"])
         self.assertEqual(self.evidence, result["deterministic_evidence"])
 
+    def _run_model_output(self, synthesis: dict[str, Any]) -> dict[str, Any]:
+        return synthesize_evidence(
+            self.evidence,
+            environment=TEST_ENVIRONMENT,
+            transport=lambda *_: _response(json.dumps(synthesis)),
+        )
+
+    def _assert_semantically_rejected(self, synthesis: dict[str, Any]) -> None:
+        evidence_before = copy.deepcopy(self.evidence)
+        result = self._run_model_output(synthesis)
+        self.assertEqual("failed", result["status"])
+        self.assertEqual("SEMANTIC_VALIDATION_FAILED", result["error"]["code"])
+        self.assertTrue(result["structural_validation_passed"])
+        self.assertFalse(result["semantic_validation_passed"])
+        self.assertIsNone(result["model_synthesis"])
+        self.assertEqual(evidence_before, result["deterministic_evidence"])
+        self.assertEqual(evidence_before, self.evidence)
+
+    def test_held_to_maturity_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["headline"] = "Held-to-maturity assets create urgency"
+        self._assert_semantically_rejected(invalid)
+
+    def test_forced_liquidation_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["why_it_matters"] = "The facility could result in forced liquidation."
+        self._assert_semantically_rejected(invalid)
+
+    def test_rm_must_act_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["headline"] = "The RM must act before the cash need"
+        self._assert_semantically_rejected(invalid)
+
+    def test_illiquid_collateral_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["why_it_matters"] = "The illiquid collateral mix increases concern."
+        self._assert_semantically_rejected(invalid)
+
+    def test_speculative_hkd2m_causes_are_rejected(self) -> None:
+        for cause in ("fees", "accrued interest", "undisclosed transactions"):
+            with self.subTest(cause=cause):
+                invalid = _valid_synthesis()
+                invalid["uncertainties"] = [f"The HKD2m could be {cause}."]
+                self._assert_semantically_rejected(invalid)
+
+    def test_unexplained_hkd2m_wording_passes(self) -> None:
+        valid = _valid_synthesis()
+        valid["uncertainties"] = [
+            "The HKD2m remains unexplained by the supplied evidence."
+        ]
+        result = self._run_model_output(valid)
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+
+    def test_external_resources_are_allowed_only_as_rm_question(self) -> None:
+        valid = _valid_synthesis()
+        valid["rm_questions"] = [
+            "Does the client have external business cash resources?"
+        ]
+        self.assertEqual("available", self._run_model_output(valid)["status"])
+
+        invalid = _valid_synthesis()
+        invalid["why_it_matters"] = "The client has external business cash resources."
+        self._assert_semantically_rejected(invalid)
+
+    def test_non_binding_review_option_is_allowed(self) -> None:
+        valid = _valid_synthesis()
+        valid["rm_review_options"] = ["Review the collateral position."]
+        result = self._run_model_output(valid)
+        self.assertEqual("available", result["status"])
+        self.assertTrue(result["semantic_validation_passed"])
+
+    def test_directive_review_option_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["rm_review_options"] = ["The RM should review the collateral position."]
+        self._assert_semantically_rejected(invalid)
+
+    def test_safe_funding_claim_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["headline"] = "The HKD60m cash need is safely funded"
+        self._assert_semantically_rejected(invalid)
+
+    def test_margin_call_occurrence_claim_is_rejected(self) -> None:
+        invalid = _valid_synthesis()
+        invalid["why_it_matters"] = "A margin call has already occurred."
+        self._assert_semantically_rejected(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()
