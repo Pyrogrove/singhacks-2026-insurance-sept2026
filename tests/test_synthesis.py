@@ -276,6 +276,69 @@ class SynthesisTests(unittest.TestCase):
         invalid["why_it_matters"] = "A margin call has already occurred."
         self._assert_semantically_rejected(invalid)
 
+    def test_default_timeout_is_sixty_seconds(self) -> None:
+        captured_timeout: list[float] = []
+
+        def capture_timeout(
+            _endpoint: str,
+            _payload: dict[str, Any],
+            _api_key: str,
+            timeout: float,
+        ) -> dict[str, Any]:
+            captured_timeout.append(timeout)
+            return _response(json.dumps(_valid_synthesis()))
+
+        result = synthesize_evidence(
+            self.evidence,
+            environment=TEST_ENVIRONMENT,
+            transport=capture_timeout,
+        )
+        self.assertEqual("available", result["status"])
+        self.assertEqual([60.0], captured_timeout)
+
+    def test_configured_timeout_is_used(self) -> None:
+        captured_timeout: list[float] = []
+        environment = {
+            **TEST_ENVIRONMENT,
+            "DEEPSEEK_TIMEOUT_SECONDS": "75.5",
+        }
+
+        def capture_timeout(
+            _endpoint: str,
+            _payload: dict[str, Any],
+            _api_key: str,
+            timeout: float,
+        ) -> dict[str, Any]:
+            captured_timeout.append(timeout)
+            return _response(json.dumps(_valid_synthesis()))
+
+        result = synthesize_evidence(
+            self.evidence,
+            environment=environment,
+            transport=capture_timeout,
+        )
+        self.assertEqual("available", result["status"])
+        self.assertEqual([75.5], captured_timeout)
+
+    def test_invalid_timeout_fails_safely(self) -> None:
+        for invalid_timeout in ("", "not-a-number", "0", "-1", "nan", "inf"):
+            with self.subTest(timeout=invalid_timeout):
+                evidence_before = copy.deepcopy(self.evidence)
+                environment = {
+                    **TEST_ENVIRONMENT,
+                    "DEEPSEEK_TIMEOUT_SECONDS": invalid_timeout,
+                }
+                result = synthesize_evidence(
+                    self.evidence,
+                    environment=environment,
+                    transport=lambda *_: self.fail("transport should not be called"),
+                )
+                self.assertEqual("unavailable", result["status"])
+                self.assertEqual("INVALID_TIMEOUT", result["error"]["code"])
+                self.assertIn("positive numeric", result["error"]["message"])
+                self.assertIsNone(result["model_synthesis"])
+                self.assertEqual(evidence_before, result["deterministic_evidence"])
+
 
 if __name__ == "__main__":
     unittest.main()

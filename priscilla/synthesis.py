@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import time
@@ -17,7 +18,7 @@ from .evidence import build_client_evidence
 
 REQUIRED_DISCLAIMER = "The Relationship Manager remains responsible for advice and action."
 DEFAULT_BASE_URL = "https://api.deepseek.com"
-DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_TIMEOUT_SECONDS = 60.0
 
 SYSTEM_INSTRUCTION = f"""You are a bounded interpretation layer for a relationship manager.
 Use only the supplied CL-0014 evidence. Python has already calculated every authoritative metric.
@@ -306,12 +307,34 @@ def _failure_result(
     }
 
 
+def _resolve_timeout_seconds(
+    environment: Mapping[str, str],
+    explicit_timeout: float | None,
+) -> float:
+    value: Any
+    if explicit_timeout is not None:
+        value = explicit_timeout
+    elif "DEEPSEEK_TIMEOUT_SECONDS" in environment:
+        value = environment["DEEPSEEK_TIMEOUT_SECONDS"]
+    else:
+        value = DEFAULT_TIMEOUT_SECONDS
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "DEEPSEEK_TIMEOUT_SECONDS must be a positive numeric value"
+        ) from exc
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("DEEPSEEK_TIMEOUT_SECONDS must be a positive numeric value")
+    return timeout
+
+
 def synthesize_evidence(
     evidence: Mapping[str, Any],
     *,
     environment: Mapping[str, str] | None = None,
     transport: Transport | None = None,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     """Request and validate one bounded synthesis while preserving evidence."""
     env = os.environ if environment is None else environment
@@ -343,6 +366,16 @@ def synthesize_evidence(
             "DEEPSEEK_BASE_URL is empty",
             model,
         )
+    try:
+        request_timeout = _resolve_timeout_seconds(env, timeout)
+    except ValueError as exc:
+        return _failure_result(
+            evidence,
+            "unavailable",
+            "INVALID_TIMEOUT",
+            str(exc),
+            model,
+        )
     endpoint = f"{base_url}/chat/completions"
     compact_input = build_compact_model_input(evidence)
     payload = {
@@ -363,7 +396,7 @@ def synthesize_evidence(
     started = time.perf_counter()
     structural_validation_passed = False
     try:
-        provider_response = request_transport(endpoint, payload, api_key, timeout)
+        provider_response = request_transport(endpoint, payload, api_key, request_timeout)
         latency = time.perf_counter() - started
         choices = provider_response.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -434,7 +467,7 @@ def synthesize_client_briefing(
     as_of: str = "2026-08-26",
     environment: Mapping[str, str] | None = None,
     transport: Transport | None = None,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
     """Build deterministic evidence, then request a bounded interpretation."""
     evidence = build_client_evidence(data_dir, client_id=client_id, as_of=as_of)
