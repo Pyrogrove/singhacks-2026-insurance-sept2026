@@ -225,6 +225,11 @@ class StreamlitWorkbenchTests(unittest.TestCase):
 
         synthesis.assert_called_once()
         translation.assert_not_called()
+        self.assertEqual([], app.segmented_control)
+        self.assertNotIn(
+            "generate_traditional_chinese_translation",
+            [button.key for button in app.button],
+        )
         self.assertEqual(original_synthesis, english_result["model_synthesis"])
         self.assertEqual([], app.exception)
         subheadings = [element.value for element in app.subheader]
@@ -302,6 +307,7 @@ class StreamlitWorkbenchTests(unittest.TestCase):
         self.assertEqual(2, visible_text.count(supporting_authority))
         self.assertNotIn("客戶經理仍對建議及後續行動負責。", visible_text)
 
+    @unittest.skip("Traditional Chinese UI is intentionally hidden in the public demo")
     def test_translation_is_explicit_once_and_reused_across_language_switches(
         self,
     ) -> None:
@@ -414,6 +420,7 @@ class StreamlitWorkbenchTests(unittest.TestCase):
             )
             self.assertIn("已驗證的英文標題", self._visible_text(app))
 
+    @unittest.skip("Traditional Chinese UI is intentionally hidden in the public demo")
     def test_new_english_synthesis_clears_stored_translation(self) -> None:
         old_english_result = _successful_english_synthesis()
         new_english_result = _successful_english_synthesis()
@@ -472,6 +479,7 @@ class StreamlitWorkbenchTests(unittest.TestCase):
             self.assertEqual(2, translation.call_count)
             self.assertIn("新的已驗證英文標題", self._visible_text(app))
 
+    @unittest.skip("Traditional Chinese UI is intentionally hidden in the public demo")
     def test_translation_failure_is_neutral_and_keeps_english_visible(self) -> None:
         english_result = _successful_english_synthesis()
         failed_translation = _failed_translation_result()
@@ -526,6 +534,7 @@ class StreamlitWorkbenchTests(unittest.TestCase):
         )
         self.assertNotIn("客戶經理仍對建議及後續行動負責。", visible_text)
 
+    @unittest.skip("Traditional Chinese UI is intentionally hidden in the public demo")
     def test_failed_translation_survives_switching_and_explicit_retry_succeeds(
         self,
     ) -> None:

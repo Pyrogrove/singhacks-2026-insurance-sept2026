@@ -331,16 +331,7 @@ def _render_ai_result(
         return
 
     synthesis = result["model_synthesis"]
-    with st.container(horizontal_alignment="right"):
-        language = st.segmented_control(
-            "Briefing language",
-            options=("English", "繁體中文"),
-            default="English",
-            required=True,
-            key="ai_briefing_language",
-            width="content",
-            wrap=False,
-        )
+    language = "English"
 
     displayed_synthesis = synthesis
     traditional_chinese = False
