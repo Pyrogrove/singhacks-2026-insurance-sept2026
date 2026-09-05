@@ -6,6 +6,101 @@
 
 ---
 
+## 🧭 This Repository's Implementation: Priscilla
+
+**Priscilla** is the RM Intelligence Workbench built for this challenge — a single-page Streamlit
+app that turns the dataset above into an evidence-led investigation tool for one relationship
+manager's book of 20 clients.
+
+**Status: frozen.** This is a retained release candidate. Application behaviour and visual design
+are not being changed; this run only concerns documentation, repository hygiene and secret safety.
+
+### What it does
+
+* **Deterministic RM book scan** ([priscilla/book_scan.py](priscilla/book_scan.py)) — screens the
+  full client book for liquidity, credit-facility and commitment flags without any AI involved, so
+  there is always a trustworthy starting view even if the AI briefing is unavailable.
+* **Deterministic client evidence** ([priscilla/evidence.py](priscilla/evidence.py)) — assembles
+  JSON-serializable, auditable evidence for a single client from the raw CSV/JSON dataset (positions
+  across the five snapshots, mandate bands, credit facilities, commitments, RM notes, market
+  context).
+* **AI-generated decision briefing** ([priscilla/synthesis.py](priscilla/synthesis.py)) — sends the
+  bounded evidence to an LLM (DeepSeek, via a Chat Completions–style HTTP API) to produce a
+  structured brief (headline, why-it-matters, evidence used, uncertainties, RM questions, review
+  options), then **validates the response both structurally and semantically** before it is shown —
+  rejecting outputs that invent numbers, imply autonomous advice, or use disallowed terminology
+  (e.g. margin-call/headroom language not grounded in the evidence). Deterministic evidence remains
+  visible even when the AI briefing fails or is not configured.
+* **Traditional Chinese translation** ([priscilla/translation.py](priscilla/translation.py)) — an
+  optional translation pass over the validated English brief, checked for critical-token
+  preservation (numbers, currencies, percentages, identifiers) so nothing material is lost or altered
+  in translation. **This UI path is intentionally hidden in the public demo** (see
+  `tests/test_streamlit_app.py`, tests skipped with `"Traditional Chinese UI is intentionally hidden
+  in the public demo"`), though the underlying module and its tests remain in the repository.
+* **Single-page workbench UI** ([streamlit_app.py](streamlit_app.py)) — presents the book scan, lets
+  the RM drill into one client, shows deterministic evidence first, and offers the AI briefing as an
+  explicit, RM-triggered action. The RM's authority and the tool's non-autonomous scope are stated in
+  the UI before any AI content is generated.
+
+### Architecture and stack
+
+* **Language/runtime**: Python (see [requirements.txt](requirements.txt) /
+  [requirements-demo.txt](requirements-demo.txt) — `pandas>=2.0`, `streamlit>=1.57`)
+* **UI**: Streamlit, single page (`streamlit_app.py`)
+* **AI provider**: DeepSeek chat-completions API, configured solely via the `DEEPSEEK_API_KEY`
+  environment variable (see [priscilla/synthesis.py](priscilla/synthesis.py) and
+  [priscilla/translation.py](priscilla/translation.py)) — no key is hardcoded or committed anywhere
+  in this repository
+* **Data**: static CSV/JSON files in [`data/`](data/) (see [The Dataset](#-the-dataset) below and
+  [docs/DATA_DICTIONARY.md](docs/DATA_DICTIONARY.md)); no database
+* **Tests**: `unittest` suite in [`tests/`](tests/) covering book scan, per-client evidence
+  (`CL-0014`), synthesis validation, translation validation and the Streamlit app's control flow
+
+### Setup and local run
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate | macOS/Linux: source .venv/bin/activate
+pip install -r requirements-demo.txt
+
+# Optional — enables the AI briefing feature; without it, deterministic evidence still works
+export DEEPSEEK_API_KEY=your-key-here   # Windows PowerShell: $env:DEEPSEEK_API_KEY = "your-key-here"
+
+streamlit run streamlit_app.py
+```
+
+`starter/quickstart.py` remains available as the original, dependency-light way to see the raw
+dataset shape (`pip install -r requirements.txt && python starter/quickstart.py`).
+
+### Verified deployment
+
+Public demo: **https://priscilla-rm-intelligence-v4.streamlit.app** (Streamlit Community Cloud).
+
+### Verification actually performed (this milestone)
+
+* Full test suite run locally: `python -m unittest discover -s tests -v` — **86 tests, all passing**
+  (4 intentionally skipped, corresponding to the hidden Chinese UI path noted above).
+* `py_compile` over `streamlit_app.py`, `priscilla/*.py` and `starter/quickstart.py` — no syntax
+  errors.
+* Repository secret scan: no `.env` or credential files tracked; grep for
+  key/secret/password/token patterns across the codebase confirmed all matches are the
+  `DEEPSEEK_API_KEY` environment-variable name (never a value) plus unrelated uses of the word
+  "token" for text-processing tokens.
+* No linter or type-checker (ruff/flake8/mypy/black, etc.) is configured in this repository at this
+  milestone.
+
+### Known limitations
+
+* No automated lint or static type-checking is configured.
+* The Traditional Chinese translation UI path is implemented and tested but hidden from the public
+  demo build.
+* The AI briefing feature requires a `DEEPSEEK_API_KEY` to be configured in the deployment
+  environment; without it, the app still functions with deterministic evidence only.
+* This is a hackathon-scope build over synthetic data, not a production banking system — see
+  Trust, Governance & Explainability below for what a production path would need to address.
+
+---
+
 > ## ⚠️ All data in this repository is synthetic
 >
 > Every client, portfolio, holding, transaction and relationship-manager note in `data/` was
