@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import pandas as pd
 import streamlit as st
 
+from priscilla.book_scan import build_book_scan
 from priscilla.evidence import build_client_evidence
 from priscilla.synthesis import synthesize_evidence
 from priscilla.translation import translate_validated_synthesis
@@ -61,6 +62,12 @@ TRANSLATION_LIST_FIELDS = (
 def load_evidence(data_dir: str) -> dict[str, Any]:
     """Load the deterministic packet once per app process."""
     return build_client_evidence(data_dir)
+
+
+@st.cache_data(show_spinner=False)
+def load_book_scan(data_dir: str) -> dict[str, Any]:
+    """Load the deterministic official-book screening view once per process."""
+    return build_book_scan(data_dir)
 
 
 def _money_millions(currency: str, amount: float) -> str:
@@ -442,8 +449,8 @@ ltv_series["Margin-call trigger (70%)"] = facility[
     "margin_call_trigger_percentage"
 ]
 
-overview_tab, evidence_tab, notes_tab, ai_tab = st.tabs(
-    ["Overview", "Evidence", "RM notes", "AI briefing"]
+overview_tab, evidence_tab, notes_tab, ai_tab, book_tab = st.tabs(
+    ["Overview", "Evidence", "RM notes", "AI briefing", "RM Book"]
 )
 
 with overview_tab:
@@ -606,6 +613,60 @@ with ai_tab:
             "interpretation. No model call has been made."
         )
         st.caption("Deterministic evidence remains authoritative and available.")
+
+with book_tab:
+    book_scan = load_book_scan(str(DATA_DIR))
+    st.subheader("RM Book")
+    st.caption(
+        "Deterministic screening evidence from the official synthetic book — "
+        "review signals, not investment advice."
+    )
+    book_metrics = st.columns(3, border=True)
+    book_metrics[0].metric("Clients", book_scan["client_count"])
+    book_metrics[1].metric(
+        "Portfolio relationships", book_scan["portfolio_relationship_count"]
+    )
+    book_metrics[2].metric("Latest official snapshot", book_scan["as_of"])
+
+    def _flag_label(value: bool | None) -> str:
+        if value is None:
+            return "UNKNOWN"
+        return "YES" if value else "NO"
+
+    book_view = pd.DataFrame(
+        [
+            {
+                "Client ID": row["client_id"],
+                "Client name": row["client_name"] or "UNKNOWN",
+                "Portfolio count": row["portfolio_count"],
+                "Mandate code(s)": ", ".join(row["mandate_codes"]) or "UNKNOWN",
+                "Confirmed cash need": _flag_label(
+                    row["confirmed_cash_need_present"]
+                ),
+                "Credit facility": _flag_label(row["credit_facility_present"]),
+                "Commitment": _flag_label(row["commitment_present"]),
+                "Mandate allocation deviation": _flag_label(
+                    row["mandate_allocation_deviation_present"]
+                ),
+                "Evidence flags": row["evidence_flag_count"],
+            }
+            for row in book_scan["clients"]
+        ]
+    )
+    st.dataframe(book_view, hide_index=True, width="stretch")
+    st.caption(
+        "YES means supplied evidence supports the signal; NO means the available "
+        "official source does not; UNKNOWN means the evidence is unavailable or "
+        "insufficient. Deep validated investigation currently demonstrated for CL-0014."
+    )
+    with st.expander("Evidence provenance", expanded=False):
+        st.write(
+            "Client and portfolio relationships: clients.csv, portfolios.csv. "
+            "Cash needs: planned_cash_needs.csv (Confirmed only). Credit facilities: "
+            "credit_facilities.csv. Commitments: commitments.csv. Allocation comparison: "
+            "holdings.csv at 2026-08-26 against explicit mandates.csv "
+            "min/max ranges."
+        )
 
 st.caption(ENGLISH_DISCLAIMER)
 st.caption(ENGLISH_AUTHORITY)
