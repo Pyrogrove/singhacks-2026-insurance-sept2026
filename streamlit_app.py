@@ -375,16 +375,17 @@ st.set_page_config(
     layout="wide",
 )
 
-header_brand, header_context = st.columns([1, 3], vertical_alignment="center")
+book_scan = load_book_scan(str(DATA_DIR))
+
+header_brand, header_context = st.columns([2, 3], vertical_alignment="center")
 with header_brand:
-    st.markdown("## Priscilla")
-    st.caption("RM Intelligence Investigator")
+    st.markdown("## Priscilla — RM Intelligence Investigator")
+    st.caption("Evidence-led portfolio review · RM remains in control")
 with header_context:
     st.markdown(
-        ":blue-badge[Client CL-0014] "
-        ":violet-badge[RM Priscilla Ong] "
-        ":gray-badge[As of 26 Aug 2026] "
-        ":gray-badge[Synthetic challenge dataset]",
+        f":gray-badge[{book_scan['client_count']} Clients] "
+        f":gray-badge[{book_scan['portfolio_relationship_count']} Portfolios] "
+        f":gray-badge[{book_scan['as_of']} Snapshot]",
         text_alignment="right",
     )
 
@@ -410,17 +411,6 @@ ltv_series["Margin-call trigger (70%)"] = facility[
     "margin_call_trigger_percentage"
 ]
 
-book_scan = load_book_scan(str(DATA_DIR))
-st.subheader("RM Book")
-st.caption("Start here: scan the RM book for deterministic review signals.")
-book_metrics = st.columns(3, border=True)
-book_metrics[0].metric("Clients", book_scan["client_count"])
-book_metrics[1].metric(
-    "Portfolio relationships", book_scan["portfolio_relationship_count"]
-)
-book_metrics[2].metric("Latest official snapshot", book_scan["as_of"])
-
-
 def _flag_label(value: bool | None) -> str:
     if value is None:
         return "UNKNOWN"
@@ -441,54 +431,55 @@ review_queue = sorted(
     (row for row in book_scan["clients"] if row["evidence_flag_count"] > 0),
     key=lambda row: (-row["evidence_flag_count"], row["client_id"]),
 )
+top_review_queue = review_queue[:5]
+
 st.markdown("#### Review Queue")
 st.caption(
-    "Ordered by number of independent deterministic review signals. Signal count "
-    "indicates breadth of evidence, not risk severity or investment priority."
+    "Independent deterministic review signals. Counts indicate evidence breadth, "
+    "not risk severity or investment priority."
 )
-queue_view = pd.DataFrame(
-    [
-        {
-            "Client ID / name": f"{row['client_id']} — {row['client_name']}",
-            "Review signals": row["evidence_flag_count"],
-            "Why surfaced": _why_surfaced(row),
-            "Deep investigation": (
-                "Available" if row["client_id"] == "CL-0014" else "—"
-            ),
-        }
-        for row in review_queue
-    ]
-)
-st.dataframe(queue_view, hide_index=True, width="stretch")
+if top_review_queue:
+    queue_columns = st.columns(len(top_review_queue), gap="small", border=True)
+    for column, row in zip(queue_columns, top_review_queue, strict=True):
+        with column:
+            st.markdown(f"**{row['client_id']}**")
+            st.caption(row["client_name"] or "UNKNOWN")
+            st.metric("Signals", row["evidence_flag_count"])
+            st.caption(_why_surfaced(row))
+            if row["client_id"] == "CL-0014":
+                st.markdown(":violet-badge[Validated deep dive available]")
 
-st.markdown("#### Full RM Book")
-book_view = pd.DataFrame(
-    [
-        {
-            "Client ID": row["client_id"],
-            "Client name": row["client_name"] or "UNKNOWN",
-            "Portfolio count": row["portfolio_count"],
-            "Mandate code(s)": ", ".join(row["mandate_codes"]) or "UNKNOWN",
-            "Confirmed cash need": _flag_label(
-                row["confirmed_cash_need_present"]
-            ),
-            "Credit facility": _flag_label(row["credit_facility_present"]),
-            "Commitment": _flag_label(row["commitment_present"]),
-            "Mandate allocation deviation": _flag_label(
-                row["mandate_allocation_deviation_present"]
-            ),
-            "Evidence flags": row["evidence_flag_count"],
-        }
-        for row in book_scan["clients"]
-    ]
-)
-st.dataframe(book_view, hide_index=True, width="stretch")
-st.caption(
-    "YES means supplied evidence supports the signal; NO means the available "
-    "official source does not; UNKNOWN means the evidence is unavailable or "
-    "insufficient."
-)
-with st.expander("Evidence provenance", expanded=False):
+with st.expander(
+    f"View complete RM Book ({book_scan['client_count']} clients)", expanded=False
+):
+    book_view = pd.DataFrame(
+        [
+            {
+                "Client ID": row["client_id"],
+                "Client name": row["client_name"] or "UNKNOWN",
+                "Portfolio count": row["portfolio_count"],
+                "Mandate code(s)": ", ".join(row["mandate_codes"]) or "UNKNOWN",
+                "Confirmed cash need": _flag_label(
+                    row["confirmed_cash_need_present"]
+                ),
+                "Credit facility": _flag_label(row["credit_facility_present"]),
+                "Commitment": _flag_label(row["commitment_present"]),
+                "Mandate allocation deviation": _flag_label(
+                    row["mandate_allocation_deviation_present"]
+                ),
+                "Evidence flags": row["evidence_flag_count"],
+            }
+            for row in book_scan["clients"]
+        ]
+    )
+    st.dataframe(book_view, hide_index=True, width="stretch")
+    st.caption(
+        "YES means supplied evidence supports the signal; NO means the available "
+        "official source does not; UNKNOWN means the evidence is unavailable or "
+        "insufficient."
+    )
+
+with st.expander("Evidence sources & provenance", expanded=False):
     st.write(
         "Client and portfolio relationships: clients.csv, portfolios.csv. "
         "Cash needs: planned_cash_needs.csv (Confirmed only). Credit facilities: "
@@ -497,9 +488,19 @@ with st.expander("Evidence provenance", expanded=False):
     )
 
 st.divider()
-st.subheader("Deep investigation — CL-0014 Lau Chi Ming")
+deep_dive_heading, deep_dive_context = st.columns([2, 3], vertical_alignment="center")
+with deep_dive_heading:
+    st.subheader("CL-0014 — Deep investigation")
+    st.caption("Lau Chi Ming")
+with deep_dive_context:
+    st.markdown(
+        ":violet-badge[Validated deep dive available] "
+        ":gray-badge[RM Priscilla Ong] "
+        ":gray-badge[As of 26 Aug 2026]",
+        text_alignment="right",
+    )
 st.caption(
-    "CL-0014 is the validated deep-investigation case in this prototype. The "
+    "The only client in this book with a validated deep investigation. The "
     "sections below connect the review signals to portfolio evidence, RM notes "
     "and a grounded AI briefing."
 )
