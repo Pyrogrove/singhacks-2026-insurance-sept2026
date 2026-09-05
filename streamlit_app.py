@@ -375,19 +375,140 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown(
+    """
+    <style>
+    :root {
+        --jb-navy: #0f2138;
+        --jb-navy-2: #17324f;
+        --jb-gold: #a9822f;
+        --jb-bg: #f5f4f0;
+        --jb-card: #ffffff;
+        --jb-border: #e1ded4;
+        --jb-muted: #6b7280;
+    }
+    [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        background: var(--jb-bg);
+    }
+    [data-testid="stHeader"] { background: transparent; }
+    .block-container { padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1240px; }
+
+    .jb-header {
+        background: linear-gradient(135deg, var(--jb-navy) 0%, var(--jb-navy-2) 100%);
+        border: 1px solid rgba(169, 130, 47, 0.35);
+        border-radius: 10px;
+        padding: 16px 24px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 10px rgba(15, 33, 56, 0.15);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 24px;
+        flex-wrap: wrap;
+    }
+    .jb-header .jb-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: #ffffff;
+        margin: 0;
+    }
+    .jb-header .jb-role {
+        font-size: 0.78rem;
+        color: var(--jb-gold);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-top: 1px;
+    }
+    .jb-header .jb-desc {
+        font-size: 0.82rem;
+        color: #c9cdd6;
+        margin-top: 4px;
+    }
+    .jb-header .jb-context { text-align: right; }
+    .jb-header .jb-meta {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #f5f4f0;
+    }
+    .jb-header .jb-sub {
+        font-size: 0.7rem;
+        color: #99a1b0;
+        margin-top: 3px;
+    }
+
+    span.stMarkdownBadge {
+        border-radius: 4px !important;
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.02em;
+        padding: 2px 9px !important;
+        border: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: var(--jb-card);
+        border: 1px solid var(--jb-border) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 1px 3px rgba(15, 33, 56, 0.05);
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: var(--jb-navy);
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--jb-muted);
+    }
+
+    [data-testid="stExpander"] {
+        border: 1px solid var(--jb-border);
+        border-radius: 8px;
+        background: var(--jb-card);
+    }
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--jb-border);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    [data-testid="stTabs"] button[aria-selected="true"] p {
+        color: var(--jb-navy);
+        font-weight: 700;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+        background-color: var(--jb-gold) !important;
+    }
+
+    h2, h3, h4 { margin-top: 0.15rem; margin-bottom: 0.35rem; }
+    hr { margin: 0.5rem 0 1rem 0; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 book_scan = load_book_scan(str(DATA_DIR))
 
-header_brand, header_context = st.columns([2, 3], vertical_alignment="center")
-with header_brand:
-    st.markdown("## Priscilla — RM Intelligence Investigator")
-    st.caption("Evidence-led portfolio review · RM remains in control")
-with header_context:
-    st.markdown(
-        f":gray-badge[{book_scan['client_count']} Clients] "
-        f":gray-badge[{book_scan['portfolio_relationship_count']} Portfolios] "
-        f":gray-badge[{book_scan['as_of']} Snapshot]",
-        text_alignment="right",
-    )
+st.markdown(
+    f"""
+    <div class="jb-header">
+        <div class="jb-brand">
+            <p class="jb-title">PRISCILLA</p>
+            <p class="jb-role">RM Intelligence Investigator</p>
+            <p class="jb-desc">Evidence-led review across the RM book · SingHacks 2026 · Julius Baer Wealth Intelligence Challenge</p>
+        </div>
+        <div class="jb-context">
+            <p class="jb-meta">{book_scan['client_count']} Clients · {book_scan['portfolio_relationship_count']} Portfolios · Snapshot {_date_label(book_scan['as_of'])}</p>
+            <p class="jb-sub">Hackathon prototype using synthetic challenge data</p>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 evidence = load_evidence(str(DATA_DIR))
 facts = evidence["source_facts"]
