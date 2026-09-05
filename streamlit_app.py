@@ -398,11 +398,116 @@ current = calculated["current_snapshot"]
 tension = evidence["data_tensions"][0]
 currency = client["base_currency"]
 
+property_series = pd.DataFrame(calculated["portfolio_snapshot_series"])
+property_series["Snapshot"] = pd.to_datetime(property_series["snapshot_date"])
+property_series["Property-linked exposure (%)"] = property_series[
+    "property_linked_percentage"
+]
+ltv_series = pd.DataFrame(facility["ltv_series"])
+ltv_series["Snapshot"] = pd.to_datetime(ltv_series["snapshot_date"])
+ltv_series["Facility LTV (%)"] = ltv_series["ltv_percentage"]
+ltv_series["Margin-call trigger (70%)"] = facility[
+    "margin_call_trigger_percentage"
+]
+
+book_scan = load_book_scan(str(DATA_DIR))
+st.subheader("RM Book")
+st.caption("Start here: scan the RM book for deterministic review signals.")
+book_metrics = st.columns(3, border=True)
+book_metrics[0].metric("Clients", book_scan["client_count"])
+book_metrics[1].metric(
+    "Portfolio relationships", book_scan["portfolio_relationship_count"]
+)
+book_metrics[2].metric("Latest official snapshot", book_scan["as_of"])
+
+
+def _flag_label(value: bool | None) -> str:
+    if value is None:
+        return "UNKNOWN"
+    return "YES" if value else "NO"
+
+
+def _why_surfaced(row: Mapping[str, Any]) -> str:
+    flag_labels = (
+        ("confirmed_cash_need_present", "Cash need"),
+        ("credit_facility_present", "Credit facility"),
+        ("commitment_present", "Commitment"),
+        ("mandate_allocation_deviation_present", "Mandate deviation"),
+    )
+    return ", ".join(label for key, label in flag_labels if row[key] is True)
+
+
+review_queue = sorted(
+    (row for row in book_scan["clients"] if row["evidence_flag_count"] > 0),
+    key=lambda row: (-row["evidence_flag_count"], row["client_id"]),
+)
+st.markdown("#### Review Queue")
+st.caption(
+    "Ordered by number of independent deterministic review signals. Signal count "
+    "indicates breadth of evidence, not risk severity or investment priority."
+)
+queue_view = pd.DataFrame(
+    [
+        {
+            "Client ID / name": f"{row['client_id']} — {row['client_name']}",
+            "Review signals": row["evidence_flag_count"],
+            "Why surfaced": _why_surfaced(row),
+            "Deep investigation": (
+                "Available" if row["client_id"] == "CL-0014" else "—"
+            ),
+        }
+        for row in review_queue
+    ]
+)
+st.dataframe(queue_view, hide_index=True, width="stretch")
+
+st.markdown("#### Full RM Book")
+book_view = pd.DataFrame(
+    [
+        {
+            "Client ID": row["client_id"],
+            "Client name": row["client_name"] or "UNKNOWN",
+            "Portfolio count": row["portfolio_count"],
+            "Mandate code(s)": ", ".join(row["mandate_codes"]) or "UNKNOWN",
+            "Confirmed cash need": _flag_label(
+                row["confirmed_cash_need_present"]
+            ),
+            "Credit facility": _flag_label(row["credit_facility_present"]),
+            "Commitment": _flag_label(row["commitment_present"]),
+            "Mandate allocation deviation": _flag_label(
+                row["mandate_allocation_deviation_present"]
+            ),
+            "Evidence flags": row["evidence_flag_count"],
+        }
+        for row in book_scan["clients"]
+    ]
+)
+st.dataframe(book_view, hide_index=True, width="stretch")
+st.caption(
+    "YES means supplied evidence supports the signal; NO means the available "
+    "official source does not; UNKNOWN means the evidence is unavailable or "
+    "insufficient."
+)
+with st.expander("Evidence provenance", expanded=False):
+    st.write(
+        "Client and portfolio relationships: clients.csv, portfolios.csv. "
+        "Cash needs: planned_cash_needs.csv (Confirmed only). Credit facilities: "
+        "credit_facilities.csv. Commitments: commitments.csv. Allocation comparison: "
+        "holdings.csv at 2026-08-26 against explicit mandates.csv min/max ranges."
+    )
+
+st.divider()
+st.subheader("Deep investigation — CL-0014 Lau Chi Ming")
+st.caption(
+    "CL-0014 is the validated deep-investigation case in this prototype. The "
+    "sections below connect the review signals to portfolio evidence, RM notes "
+    "and a grounded AI briefing."
+)
+
 st.info(
     "**Funding pressure meets concentrated property exposure**",
     icon=":material/priority_high:",
 )
-
 critical_signals = st.columns(4, gap="small", border=True)
 _render_signal_card(
     critical_signals[0],
@@ -437,20 +542,8 @@ _render_signal_card(
     detail="Facility increase vs logged drawdowns",
 )
 
-property_series = pd.DataFrame(calculated["portfolio_snapshot_series"])
-property_series["Snapshot"] = pd.to_datetime(property_series["snapshot_date"])
-property_series["Property-linked exposure (%)"] = property_series[
-    "property_linked_percentage"
-]
-ltv_series = pd.DataFrame(facility["ltv_series"])
-ltv_series["Snapshot"] = pd.to_datetime(ltv_series["snapshot_date"])
-ltv_series["Facility LTV (%)"] = ltv_series["ltv_percentage"]
-ltv_series["Margin-call trigger (70%)"] = facility[
-    "margin_call_trigger_percentage"
-]
-
-overview_tab, evidence_tab, notes_tab, ai_tab, book_tab = st.tabs(
-    ["Overview", "Evidence", "RM notes", "AI briefing", "RM Book"]
+overview_tab, evidence_tab, notes_tab, ai_tab = st.tabs(
+    ["Overview", "Evidence", "RM notes", "AI briefing"]
 )
 
 with overview_tab:
@@ -613,60 +706,6 @@ with ai_tab:
             "interpretation. No model call has been made."
         )
         st.caption("Deterministic evidence remains authoritative and available.")
-
-with book_tab:
-    book_scan = load_book_scan(str(DATA_DIR))
-    st.subheader("RM Book")
-    st.caption(
-        "Deterministic screening evidence from the official synthetic book — "
-        "review signals, not investment advice."
-    )
-    book_metrics = st.columns(3, border=True)
-    book_metrics[0].metric("Clients", book_scan["client_count"])
-    book_metrics[1].metric(
-        "Portfolio relationships", book_scan["portfolio_relationship_count"]
-    )
-    book_metrics[2].metric("Latest official snapshot", book_scan["as_of"])
-
-    def _flag_label(value: bool | None) -> str:
-        if value is None:
-            return "UNKNOWN"
-        return "YES" if value else "NO"
-
-    book_view = pd.DataFrame(
-        [
-            {
-                "Client ID": row["client_id"],
-                "Client name": row["client_name"] or "UNKNOWN",
-                "Portfolio count": row["portfolio_count"],
-                "Mandate code(s)": ", ".join(row["mandate_codes"]) or "UNKNOWN",
-                "Confirmed cash need": _flag_label(
-                    row["confirmed_cash_need_present"]
-                ),
-                "Credit facility": _flag_label(row["credit_facility_present"]),
-                "Commitment": _flag_label(row["commitment_present"]),
-                "Mandate allocation deviation": _flag_label(
-                    row["mandate_allocation_deviation_present"]
-                ),
-                "Evidence flags": row["evidence_flag_count"],
-            }
-            for row in book_scan["clients"]
-        ]
-    )
-    st.dataframe(book_view, hide_index=True, width="stretch")
-    st.caption(
-        "YES means supplied evidence supports the signal; NO means the available "
-        "official source does not; UNKNOWN means the evidence is unavailable or "
-        "insufficient. Deep validated investigation currently demonstrated for CL-0014."
-    )
-    with st.expander("Evidence provenance", expanded=False):
-        st.write(
-            "Client and portfolio relationships: clients.csv, portfolios.csv. "
-            "Cash needs: planned_cash_needs.csv (Confirmed only). Credit facilities: "
-            "credit_facilities.csv. Commitments: commitments.csv. Allocation comparison: "
-            "holdings.csv at 2026-08-26 against explicit mandates.csv "
-            "min/max ranges."
-        )
 
 st.caption(ENGLISH_DISCLAIMER)
 st.caption(ENGLISH_AUTHORITY)

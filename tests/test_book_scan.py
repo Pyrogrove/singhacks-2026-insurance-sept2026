@@ -52,6 +52,10 @@ class OfficialBookScanTests(unittest.TestCase):
     def test_existing_cl0014_tabs_and_new_book_view_are_reachable(self) -> None:
         app = AppTest.from_file(str(APP_PATH)).run(timeout=30)
         self.assertEqual([], app.exception)
+        self.assertEqual(
+            ["Overview", "Evidence", "RM notes", "AI briefing"],
+            [tab.label for tab in app.tabs],
+        )
         visible_subheaders = [item.value for item in app.subheader]
         for heading in (
             "Why now",
@@ -59,11 +63,97 @@ class OfficialBookScanTests(unittest.TestCase):
             "RM source context",
             "AI briefing",
             "RM Book",
+            "Deep investigation — CL-0014 Lau Chi Ming",
         ):
             self.assertIn(heading, visible_subheaders)
         self.assertEqual(
             "Generate AI RM Briefing",
             app.button(key="generate_ai_briefing").label,
+        )
+
+    def test_review_queue_is_flag_derived_and_book_first(self) -> None:
+        app = AppTest.from_file(str(APP_PATH)).run(timeout=30)
+        self.assertEqual([], app.exception)
+        source = APP_PATH.read_text(encoding="utf-8")
+        self.assertLess(
+            source.index('st.subheader("RM Book")'),
+            source.index("**Funding pressure meets concentrated property exposure**"),
+        )
+        self.assertLess(
+            source.index('st.markdown("#### Full RM Book")'),
+            source.index("overview_tab, evidence_tab, notes_tab, ai_tab = st.tabs"),
+        )
+        queue_columns = [
+            "Client ID / name",
+            "Review signals",
+            "Why surfaced",
+            "Deep investigation",
+        ]
+        full_book_columns = [
+            "Client ID",
+            "Client name",
+            "Portfolio count",
+            "Mandate code(s)",
+            "Confirmed cash need",
+            "Credit facility",
+            "Commitment",
+            "Mandate allocation deviation",
+            "Evidence flags",
+        ]
+        frames = [element.value for element in app.dataframe]
+        queue = next(frame for frame in frames if list(frame.columns) == queue_columns)
+        full_book = next(
+            frame for frame in frames if list(frame.columns) == full_book_columns
+        )
+
+        expected_rows = sorted(
+            (
+                row
+                for row in self.scan["clients"]
+                if row["evidence_flag_count"] > 0
+            ),
+            key=lambda row: (-row["evidence_flag_count"], row["client_id"]),
+        )
+        flag_labels = (
+            ("confirmed_cash_need_present", "Cash need"),
+            ("credit_facility_present", "Credit facility"),
+            ("commitment_present", "Commitment"),
+            ("mandate_allocation_deviation_present", "Mandate deviation"),
+        )
+        expected_reasons = [
+            ", ".join(
+                label for key, label in flag_labels if row[key] is True
+            )
+            for row in expected_rows
+        ]
+
+        self.assertEqual(
+            [
+                f"{row['client_id']} — {row['client_name']}"
+                for row in expected_rows
+            ],
+            queue["Client ID / name"].tolist(),
+        )
+        self.assertEqual(
+            [row["evidence_flag_count"] for row in expected_rows],
+            queue["Review signals"].tolist(),
+        )
+        self.assertEqual(expected_reasons, queue["Why surfaced"].tolist())
+        investigation_values = queue.set_index("Client ID / name")[
+            "Deep investigation"
+        ]
+        self.assertEqual("Available", investigation_values["CL-0014 — Lau Chi Ming"])
+        self.assertEqual(
+            {"—"},
+            set(investigation_values.drop("CL-0014 — Lau Chi Ming").tolist()),
+        )
+        self.assertEqual(20, len(full_book))
+        self.assertEqual(24, int(full_book["Portfolio count"].sum()))
+        self.assertIn(
+            "Ordered by number of independent deterministic review signals. "
+            "Signal count indicates breadth of evidence, not risk severity or "
+            "investment priority.",
+            [item.value for item in app.caption],
         )
 
 
