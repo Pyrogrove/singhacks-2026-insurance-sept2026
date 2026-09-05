@@ -10,6 +10,7 @@ import streamlit as st
 
 from priscilla.evidence import build_client_evidence
 from priscilla.synthesis import synthesize_evidence
+from priscilla.translation import translate_validated_synthesis
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -32,6 +33,27 @@ AI_FAILURE_MESSAGES = {
 }
 UNKNOWN_AI_FAILURE_MESSAGE = (
     "AI briefing is unavailable. Deterministic evidence remains available."
+)
+TRANSLATION_UNAVAILABLE_MESSAGE = (
+    "繁體中文翻譯暫時無法使用。英文驗證版本仍然可用。"
+)
+ENGLISH_DISCLAIMER = (
+    "The Relationship Manager remains responsible for advice and action."
+)
+ENGLISH_AUTHORITY = (
+    "Priscilla supports evidence-led investigation; it does not provide autonomous "
+    "advice or execute trades."
+)
+TRADITIONAL_CHINESE_DISCLAIMER = "客戶經理仍對建議及後續行動負責。"
+TRADITIONAL_CHINESE_AUTHORITY = (
+    "Priscilla 支援以證據為本的調查；不提供自主投資建議或執行交易。"
+)
+TRANSLATION_TEXT_FIELDS = ("headline", "why_it_matters")
+TRANSLATION_LIST_FIELDS = (
+    "evidence_used",
+    "uncertainties",
+    "rm_questions",
+    "rm_review_options",
 )
 
 
@@ -68,13 +90,238 @@ def _render_signal_card(
         st.caption(detail)
 
 
-def _render_list(title: str, items: list[str]) -> None:
-    st.markdown(f"**{title}**")
-    for item in items:
-        st.write(f"• {item}")
+def _compact_money(currency: str, amount: float) -> str:
+    """Format whole-million evidence using the briefing's protected notation."""
+    millions = amount / 1_000_000
+    if not millions.is_integer():
+        raise ValueError("Decision-context amounts must be whole millions")
+    return f"{currency}{millions:.0f}m"
 
 
-def _render_ai_result(result: Mapping[str, Any]) -> None:
+def _render_decision_context(
+    evidence: Mapping[str, Any],
+    *,
+    traditional_chinese: bool,
+) -> None:
+    """Render deterministic RM context without model-generated interpretation."""
+    facts = evidence["source_facts"]
+    client = facts["client"]
+    facility = facts["credit_facility"]
+    cash_need = facts["confirmed_cash_needs"][0]
+    current = evidence["calculated_results"]["current_snapshot"]
+    distance = evidence["calculated_results"][
+        "facility_ltv_distance_to_trigger_percentage_points"
+    ]
+    tension = evidence["data_tensions"][0]
+    rm_note = next(
+        note for note in facts["rm_notes"] if note["note_id"] == "N-019"
+    )
+
+    funding_amount = _compact_money(cash_need["currency"], cash_need["amount"])
+    discrepancy = _compact_money(tension["currency"], tension["unreconciled_difference"])
+    liquidity_need_zh = {"High": "高"}.get(
+        client["liquidity_needs"], client["liquidity_needs"]
+    )
+    funding_window = (
+        f"{pd.Timestamp(cash_need['due_from']).strftime('%b %Y')}–"
+        f"{pd.Timestamp(cash_need['due_to']).strftime('%b %Y')}"
+    )
+
+    # N-019 is selected explicitly so its two client-context facts remain tied to
+    # the verified note rather than inferred from portfolio calculations.
+    if "expects to fund it partly from the portfolio" not in rm_note["source_note_text"]:
+        raise ValueError("N-019 no longer supports portfolio-funded client context")
+    if "surprised how little of it is liquid" not in rm_note["source_note_text"]:
+        raise ValueError("N-019 no longer supports the recorded liquidity reaction")
+
+    cards = (
+        (
+            "為何是現在",
+            f"融資目前的 LTV 為 {facility['current_ltv_percentage']:.2f}%，與 "
+            f"{facility['margin_call_trigger_percentage']:.2f}% 觸發點僅相距 "
+            f"{distance:.2f} 個百分點；已確認的 Mid-Levels 重建項目 "
+            f"{funding_amount} 資金需求，其 {funding_window} 資金窗口正逐步臨近。",
+        ),
+        (
+            "為何是這位客戶",
+            f"這是針對該客戶的情況：投資組合價值的 "
+            f"{current['property_linked_percentage']:.2f}% 與物業相關，流動資金需要記錄為「"
+            f"{liquidity_need_zh}」，而客戶預期從投資組合撥付部分 "
+            f"{funding_amount} 資金。客戶經理筆記記錄他對可變現部分如此少感到意外。",
+        ),
+        (
+            "若仍未解決的風險",
+            f"若資金計劃仍未解決且可貸款價值轉弱，客戶經理在 {funding_window} "
+            f"資金窗口之前或期間處理 {funding_amount} 需求的靈活性可能較低。"
+            f"在客戶討論中依賴融資記錄之前，應先核對現有 {discrepancy} 融資差異。",
+        ),
+    ) if traditional_chinese else (
+        (
+            "WHY NOW",
+            f"The facility is only {distance:.2f} percentage points from its "
+            f"{facility['margin_call_trigger_percentage']:.2f}% trigger (current LTV: "
+            f"{facility['current_ltv_percentage']:.2f}%) while the confirmed "
+            f"{funding_amount} Mid-Levels redevelopment funding requirement approaches "
+            f"in the {funding_window} window.",
+        ),
+        (
+            "WHY THIS CLIENT",
+            f"This is client-specific: {current['property_linked_percentage']:.2f}% "
+            f"of portfolio value is property-linked, liquidity needs are recorded as "
+            f"{client['liquidity_needs']}, and the client expects to fund part of the "
+            f"{funding_amount} requirement from the portfolio. The RM note records that "
+            "he was surprised how little was liquid.",
+        ),
+        (
+            "RISK IF UNRESOLVED",
+            f"If the funding plan remains unresolved and lending values weaken, the RM "
+            f"may have less flexibility to address the {funding_amount} requirement "
+            f"before or during the {funding_window} funding window. The existing "
+            f"{discrepancy} facility discrepancy should be reconciled before relying on "
+            "the facility records for the client discussion.",
+        ),
+    )
+
+    context_columns = st.columns(3, gap="small", border=True)
+    for column, (label, body) in zip(context_columns, cards, strict=True):
+        with column:
+            st.caption(label)
+            st.write(body)
+
+
+def _render_briefing_content(
+    synthesis: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+    *,
+    traditional_chinese: bool,
+) -> None:
+    labels = (
+        {
+            "heading": "客戶經理情報簡報",
+            "supporting": "AI 協助 · 以驗證英文版本為依據",
+            "status": "需由客戶經理檢視",
+            "attention": "需要關注",
+            "why": "為何重要",
+            "unknown": "仍待確認",
+            "questions": "PRISCILLA 應確認",
+            "options": "可檢視選項",
+            "evidence": "支持此簡報的證據",
+        }
+        if traditional_chinese
+        else {
+            "heading": "RM INTELLIGENCE BRIEFING",
+            "supporting": "AI-assisted · evidence-grounded",
+            "status": "RM REVIEW REQUIRED",
+            "attention": "WHAT NEEDS ATTENTION",
+            "why": "WHY IT MATTERS",
+            "unknown": "WHAT WE DON'T KNOW",
+            "questions": "WHAT PRISCILLA SHOULD ASK",
+            "options": "REVIEW OPTIONS",
+            "evidence": "Evidence supporting this briefing",
+        }
+    )
+
+    st.subheader(labels["heading"])
+    st.markdown(
+        f":gray-badge[{labels['supporting']}] "
+        f":orange-badge[{labels['status']}]"
+    )
+    _render_decision_context(
+        evidence,
+        traditional_chinese=traditional_chinese,
+    )
+
+    with st.container(border=True, gap="small"):
+        st.caption(labels["attention"])
+        st.markdown(f"**{synthesis['headline']}**")
+        st.caption(labels["why"])
+        st.write(synthesis["why_it_matters"])
+
+    left, right = st.columns(2, gap="small")
+    with left:
+        with st.container(border=True, height="stretch"):
+            st.markdown(f":orange[**{labels['unknown']}**]")
+            for item in synthesis["uncertainties"]:
+                st.write(f"• {item}")
+    with right:
+        with st.container(border=True, height="stretch"):
+            st.markdown(f"**{labels['questions']}**")
+            for index, item in enumerate(synthesis["rm_questions"], start=1):
+                st.markdown(f"**{index:02d}**  {item}")
+
+    st.markdown(f"**{labels['options']}**")
+    option_columns = st.columns(
+        len(synthesis["rm_review_options"]), gap="small", border=True
+    )
+    for index, (column, item) in enumerate(
+        zip(option_columns, synthesis["rm_review_options"], strict=True), start=1
+    ):
+        with column:
+            st.caption(f"{index:02d}")
+            st.write(item)
+
+    with st.expander(labels["evidence"], expanded=False):
+        for item in synthesis["evidence_used"]:
+            st.write(f"• {item}")
+
+    if traditional_chinese:
+        authority_lines = (
+            TRADITIONAL_CHINESE_DISCLAIMER,
+            TRADITIONAL_CHINESE_AUTHORITY,
+        )
+    else:
+        authority_lines = (ENGLISH_DISCLAIMER, ENGLISH_AUTHORITY)
+    st.caption(f"{authority_lines[0]}\n\n{authority_lines[1]}")
+
+
+def _available_translation_payload(
+    result: Any,
+) -> Mapping[str, Any] | None:
+    """Return a renderable cached translation only for the available state."""
+    if not isinstance(result, Mapping) or result.get("status") != "available":
+        return None
+    payload = result.get("translation")
+    if not isinstance(payload, Mapping):
+        return None
+    if any(
+        not isinstance(payload.get(field), str) or not payload[field].strip()
+        for field in TRANSLATION_TEXT_FIELDS
+    ):
+        return None
+    if any(
+        not isinstance(payload.get(field), list)
+        or not payload[field]
+        or any(not isinstance(item, str) or not item.strip() for item in payload[field])
+        for field in TRANSLATION_LIST_FIELDS
+    ):
+        return None
+    return payload
+
+
+def _render_translation_action(
+    synthesis: Mapping[str, Any],
+    *,
+    label: str,
+) -> None:
+    """Offer one explicit translation attempt and persist its result."""
+    translate_clicked = st.button(
+        label,
+        key="generate_traditional_chinese_translation",
+        icon=":material/translate:",
+        width="content",
+    )
+    if translate_clicked:
+        with st.spinner("正在準備繁體中文翻譯…"):
+            st.session_state["cl0014_translation_result"] = (
+                translate_validated_synthesis(synthesis)
+            )
+        st.rerun()
+
+
+def _render_ai_result(
+    result: Mapping[str, Any],
+    evidence: Mapping[str, Any],
+) -> None:
     if result.get("status") != "available" or not result.get("model_synthesis"):
         st.warning(AI_UNAVAILABLE_MESSAGE)
         error = result.get("error")
@@ -84,22 +331,44 @@ def _render_ai_result(result: Mapping[str, Any]) -> None:
         return
 
     synthesis = result["model_synthesis"]
-    st.markdown(":violet-badge[AI SYNTHESIS]")
-    st.subheader("EVIDENCE-GROUNDED RM BRIEFING")
-    st.markdown(f"### {synthesis['headline']}")
-    st.write(synthesis["why_it_matters"])
+    with st.container(horizontal_alignment="right"):
+        language = st.segmented_control(
+            "Briefing language",
+            options=("English", "繁體中文"),
+            default="English",
+            required=True,
+            key="ai_briefing_language",
+            width="content",
+            wrap=False,
+        )
 
-    left, right = st.columns(2)
-    with left:
-        _render_list("Uncertainties", synthesis["uncertainties"])
-        _render_list("Questions for the RM", synthesis["rm_questions"])
-    with right:
-        _render_list("RM review options", synthesis["rm_review_options"])
+    displayed_synthesis = synthesis
+    traditional_chinese = False
+    if language == "繁體中文":
+        translation_result = st.session_state.get("cl0014_translation_result")
+        translated_payload = _available_translation_payload(translation_result)
+        if translation_result is None:
+            _render_translation_action(
+                synthesis,
+                label="產生繁體中文版本",
+            )
+            st.caption("繁體中文是英文驗證版本的翻譯檢視，不會產生新的分析。")
+        elif translated_payload is not None:
+            displayed_synthesis = translated_payload
+            traditional_chinese = True
+        else:
+            st.warning(TRANSLATION_UNAVAILABLE_MESSAGE)
+            st.caption("Validated English briefing:")
+            _render_translation_action(
+                synthesis,
+                label="重試繁體中文翻譯",
+            )
 
-    with st.expander("Evidence used by the model"):
-        for item in synthesis["evidence_used"]:
-            st.write(f"• {item}")
-    st.info(synthesis["disclaimer"])
+    _render_briefing_content(
+        displayed_synthesis,
+        evidence,
+        traditional_chinese=traditional_chinese,
+    )
 
 
 st.set_page_config(
@@ -240,9 +509,13 @@ with overview_tab:
             )
             if generate_clicked:
                 with st.spinner("Generating RM intelligence briefing…"):
-                    st.session_state["cl0014_synthesis_result"] = synthesize_evidence(
-                        evidence
-                    )
+                    new_synthesis_result = synthesize_evidence(evidence)
+                    st.session_state["cl0014_synthesis_result"] = new_synthesis_result
+                    if (
+                        new_synthesis_result.get("status") == "available"
+                        and new_synthesis_result.get("model_synthesis")
+                    ):
+                        st.session_state.pop("cl0014_translation_result", None)
 
             overview_result = st.session_state.get("cl0014_synthesis_result")
             if overview_result:
@@ -332,10 +605,10 @@ with notes_tab:
             st.markdown(f"> {note['source_note_text']}")
 
 with ai_tab:
-    st.subheader("AI briefing")
     if "cl0014_synthesis_result" in st.session_state:
-        _render_ai_result(st.session_state["cl0014_synthesis_result"])
+        _render_ai_result(st.session_state["cl0014_synthesis_result"], evidence)
     else:
+        st.subheader("AI briefing")
         st.markdown(":violet-badge[AI SYNTHESIS · OPTIONAL]")
         st.info(
             "Use **Generate AI RM Briefing** in Overview to request the bounded "
@@ -343,8 +616,5 @@ with ai_tab:
         )
         st.caption("Deterministic evidence remains authoritative and available.")
 
-st.caption("The Relationship Manager remains responsible for advice and action.")
-st.caption(
-    "Priscilla supports evidence-led investigation; it does not provide autonomous "
-    "advice or execute trades."
-)
+st.caption(ENGLISH_DISCLAIMER)
+st.caption(ENGLISH_AUTHORITY)
